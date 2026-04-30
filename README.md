@@ -72,3 +72,6 @@ We recommend using **Ngrok** to securely expose your local server to the interne
 4. Ngrok will provide a public URL that looks like this: `https://a1b2-c3d4.ngrok-free.app`
 5. **WhatsApp (Meta/Twilio)**: Go to your developer console and paste this URL into the **Webhook URL** field (append `/webhook/whatsapp` at the end).
 6. Now, whenever you text your bot's number from your phone, WhatsApp will forward the message to your local server!
+
+
+## Alaa Madi ##
