@@ -1,0 +1,42 @@
+{
+  "company_info": {
+    "name": "NextTech",
+    "specialization": "Software and AI Solutions",
+    "location": "Dubai, Al Baraka Tower",
+    "working_hours": {
+      "days": "Sunday - Thursday",
+      "time": "09:00 - 17:00"
+    }
+  },
+  "services": [
+    {
+      "id": "web_dev",
+      "name": "Corporate Website Design",
+      "price_start": 500,
+      "currency": "USD",
+      "delivery_time": "10 days"
+    },
+    {
+      "id": "e_commerce",
+      "name": "E-commerce Website Design",
+      "price_start": 1200,
+      "currency": "USD",
+      "delivery_time": "21 days"
+    }
+  ],
+  "policies": {
+    "payment": "50% upfront payment upon contract signing",
+    "refund": "Full refund available within 3 days before programming begins",
+    "modifications": "Free modifications for 7 days after delivery"
+  },
+  "faqs": [
+    {
+      "question": "Do you provide hosting?",
+      "answer": "Yes, free hosting for the first year with any new project."
+    },
+    {
+      "question": "What programming languages do you use?",
+      "answer": "We primarily rely on Python, React, and Flutter."
+    }
+  ]
+}
