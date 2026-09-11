@@ -11,6 +11,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
+from api.admin import router as admin_router
+from api.ops import router as ops_router
 from auth.security import authenticate, create_access_token, require_roles
 from core.logging import configure_logging
 from db.database import init_db
@@ -20,6 +22,7 @@ from delivery.engine import engine as delivery_engine
 from delivery.models import FormattedMessage
 from intake.models import IncomingMessage, NormalizedMessage
 from intake.session_manager import session_manager
+from services.audit import record_audit
 from services.chat_service import chat_service
 
 configure_logging()
@@ -64,7 +67,9 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="NextTech AI Support Bot", version="3.0.0", lifespan=lifespan)
+app = FastAPI(title="NextTech AI Support Bot", version="4.0.0", lifespan=lifespan)
+app.include_router(admin_router)
+app.include_router(ops_router)
 
 
 @app.middleware("http")
@@ -158,9 +163,11 @@ async def assign_conversation(
     if user["role"] != "admin" and target != user["username"]:
         raise HTTPException(status_code=403, detail="Agents may only assign conversations to themselves")
     try:
-        return conversation_repository.assign_agent(conversation_id, target)
+        assignment = conversation_repository.assign_agent(conversation_id, target)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    record_audit(user["username"], "conversation.assigned", "conversation", conversation_id, {"agent": target})
+    return assignment
 
 
 @app.post("/agent/conversations/{conversation_id}/reply")
@@ -197,6 +204,7 @@ async def agent_reply(
         metadata={"agent_username": user["username"]},
     )
     conversation_repository.set_status(conversation_id, ConversationStatus.HUMAN_ACTIVE)
+    record_audit(user["username"], "conversation.replied", "conversation", conversation_id, {"channel": conversation.channel})
     return {
         "conversation_id": conversation_id,
         "delivered": True,
@@ -217,6 +225,7 @@ async def update_conversation_status(
     if assigned_agent and assigned_agent != user["username"] and user["role"] != "admin":
         raise HTTPException(status_code=409, detail=f"Conversation is assigned to {assigned_agent}")
     conversation_repository.set_status(conversation_id, payload.status)
+    record_audit(user["username"], "conversation.status_changed", "conversation", conversation_id, {"status": payload.status.value})
     return {"id": conversation_id, "status": payload.status.value}
 
 
@@ -235,18 +244,21 @@ async def create_knowledge(
     payload: KnowledgeRequest,
     user: dict = Depends(require_roles("admin")),
 ):
-    return knowledge_repository.create_entry(
+    created = knowledge_repository.create_entry(
         title=payload.title,
         content=payload.content,
         category=payload.category,
         created_by=user["username"],
     )
+    record_audit(user["username"], "knowledge.created", "knowledge", created["id"], {"title": payload.title})
+    return created
 
 
 @app.delete("/knowledge/{entry_id}", status_code=204)
 async def delete_knowledge(entry_id: str, user: dict = Depends(require_roles("admin"))):
     if not knowledge_repository.delete_entry(entry_id):
         raise HTTPException(status_code=404, detail="Knowledge entry not found")
+    record_audit(user["username"], "knowledge.deleted", "knowledge", entry_id)
     return None
 
 
@@ -313,4 +325,4 @@ async def get_session_history(session_id: str, user: dict = Depends(require_role
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "version": "3.0.0"}
+    return {"status": "ok", "version": "4.0.0"}

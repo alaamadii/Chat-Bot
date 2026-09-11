@@ -6,6 +6,10 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from sqlalchemy import select
+
+from db.database import SessionLocal
+from db.models import User
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer = HTTPBearer(auto_error=False)
@@ -15,22 +19,53 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_MINUTES", "480"))
 
 
-def _users() -> dict[str, dict]:
-    admin_user = os.getenv("ADMIN_USERNAME", "admin")
-    admin_password = os.getenv("ADMIN_PASSWORD", "admin123")
-    agent_user = os.getenv("AGENT_USERNAME", "agent")
-    agent_password = os.getenv("AGENT_PASSWORD", "agent123")
-    return {
-        admin_user: {"username": admin_user, "password": admin_password, "role": "admin"},
-        agent_user: {"username": agent_user, "password": agent_password, "role": "agent"},
-    }
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    return pwd_context.verify(password, password_hash)
+
+
+def seed_default_users() -> None:
+    defaults = [
+        (os.getenv("ADMIN_USERNAME"), os.getenv("ADMIN_PASSWORD"), "admin"),
+        (os.getenv("AGENT_USERNAME"), os.getenv("AGENT_PASSWORD"), "agent"),
+    ]
+    with SessionLocal() as db:
+        for username, password, role in defaults:
+            if not username or not password:
+                continue
+            if not db.scalar(select(User).where(User.username == username)):
+                db.add(User(username=username, password_hash=hash_password(password), role=role))
+        db.commit()
 
 
 def authenticate(username: str, password: str) -> dict | None:
-    user = _users().get(username)
-    if not user or user["password"] != password:
-        return None
-    return {"username": user["username"], "role": user["role"]}
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.username == username, User.is_active.is_(True)))
+        if not user or not verify_password(password, user.password_hash):
+            return None
+        return {"username": user.username, "role": user.role}
+
+
+def create_user(username: str, password: str, role: str = "agent") -> dict:
+    if role not in {"agent", "admin"}:
+        raise ValueError("role must be agent or admin")
+    with SessionLocal() as db:
+        if db.scalar(select(User).where(User.username == username)):
+            raise ValueError("username already exists")
+        user = User(username=username, password_hash=hash_password(password), role=role)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return {"id": user.id, "username": user.username, "role": user.role, "is_active": user.is_active}
+
+
+def list_users() -> list[dict]:
+    with SessionLocal() as db:
+        rows = list(db.scalars(select(User).order_by(User.username.asc())).all())
+        return [{"id": u.id, "username": u.username, "role": u.role, "is_active": u.is_active} for u in rows]
 
 
 def create_access_token(user: dict) -> str:
@@ -51,7 +86,11 @@ def current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer)) ->
         payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
     except JWTError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token") from exc
-    return {"username": payload.get("sub"), "role": payload.get("role")}
+    username = payload.get("sub")
+    role = payload.get("role")
+    if not username or not role:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+    return {"username": username, "role": role}
 
 
 def require_roles(*roles: str) -> Callable:
