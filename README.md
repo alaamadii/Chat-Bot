@@ -265,6 +265,13 @@ See [`docs/PRODUCTION.md`](docs/PRODUCTION.md) for release, database, secrets, r
 
 Deployment-specific infrastructure still has to be supplied by the deployer: hosting, PostgreSQL, TLS/domain, secrets, backup/alert destinations, and real third-party integration credentials.
 
+## Release
+
+Current application release: **v6.0.0**.
+
+- [Changelog](CHANGELOG.md)
+- [v6.0.0 release notes](docs/releases/v6.0.0.md)
+
 ## Demo
 
 [Video demo](https://drive.google.com/file/d/1KfCMBhyGucs8oKSCfGJ2OcyrH42dYaYL/view?usp=sharing)
