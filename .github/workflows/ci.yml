@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, sprint-1-production-core, sprint-2-productization]
+    branches: [main, 'sprint-*']
   pull_request:
 
 jobs:
@@ -15,11 +15,15 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: pip install -r requirements.txt
+      - name: Validate database migrations
+        run: alembic upgrade head
+        env:
+          DATABASE_URL: sqlite:///./migration_test.db
       - run: pytest -q
         env:
           DATABASE_URL: sqlite:///./test_chatbot.db
           JWT_SECRET_KEY: test-secret
           ADMIN_USERNAME: admin
-          ADMIN_PASSWORD: admin123
+          ADMIN_PASSWORD: admin12345
           AGENT_USERNAME: agent
-          AGENT_PASSWORD: agent123
+          AGENT_PASSWORD: agent12345
