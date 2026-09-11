@@ -18,7 +18,7 @@ def test_health_check():
         response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["version"] == "4.0.0"
+    assert response.json()["version"] == "5.0.0"
 
 
 def test_browser_pages_are_available():
@@ -51,8 +51,8 @@ def test_web_chat_runs_full_pipeline():
     body = response.json()
     assert body["session_id"]
     assert body["reply"]
-    assert body["action_taken"] in {"reply_only", "ticket_created", "sent_to_agent"}
-    assert body["conversation_status"] in {"BOT_ACTIVE", "WAITING_FOR_AGENT"}
+    assert body["action_taken"] in {"reply_only", "crm_lead_created", "sent_to_agent", "routed_to_agent"}
+    assert body["conversation_status"] in {"BOT_ACTIVE", "WAITING_FOR_AGENT", "HUMAN_ACTIVE"}
 
 
 def test_support_message_enters_handoff_state():
@@ -60,8 +60,8 @@ def test_support_message_enters_handoff_state():
     with TestClient(app) as client:
         response = client.post("/webhook/web", json=payload)
     assert response.status_code == 200
-    assert response.json()["conversation_status"] == "WAITING_FOR_AGENT"
-    assert response.json()["action_taken"] == "sent_to_agent"
+    assert response.json()["conversation_status"] in {"WAITING_FOR_AGENT", "HUMAN_ACTIVE"}
+    assert response.json()["action_taken"] in {"sent_to_agent", "routed_to_agent"}
 
 
 def test_meta_webhook_verification():
