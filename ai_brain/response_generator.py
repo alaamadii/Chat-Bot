@@ -1,67 +1,74 @@
-from ai_brain.models import Context, Intent, AIResponse
 import os
+import time
+
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
+from ai_brain.models import AIResponse, Context, Intent
+
 load_dotenv()
 
+
 class ResponseGenerator:
-    """
-    Task 6: Response Generator
-    LLM produces smart reply using Gemini
-    """
+    """Generate grounded responses through a configurable Gemini model."""
+
     def __init__(self):
-        # The client automatically picks up GEMINI_API_KEY from the environment
+        self.provider = "gemini"
+        self.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        self.temperature = float(os.getenv("GEMINI_TEMPERATURE", "0.3"))
         try:
             self.client = genai.Client()
-        except Exception as e:
-            print(f"[Response Generator] Warning: Could not initialize Gemini client: {e}")
+        except Exception:
             self.client = None
 
     def generate(self, user_message: str, intent: Intent, context: Context) -> AIResponse:
         if not self.client:
             return AIResponse(
                 text="Sorry, I am having trouble connecting to the server. Please try again later.",
-                reasoning="Gemini Client not initialized. Missing API key?"
+                reasoning="LLM client unavailable",
+                provider=self.provider,
+                model=self.model,
+                latency_ms=0,
             )
-            
+
         system_instruction = f"""
-        You are a helpful customer service assistant for NextTech, a software and AI solutions company in Dubai.
-        The user's intent has been classified as: {intent.category}.
-        
-        Here is the relevant information from our knowledge base:
-        {chr(10).join(context.knowledge_snippets)}
-        
-        Rules:
-        1. Answer the user's question politely in English.
-        2. Only use the provided knowledge base snippets. If the answer is not in the snippets, say you don't have that information.
-        3. Be concise and professional.
-        """
-        
-        prompt = f"User Message: {user_message}"
-        
+You are a helpful customer service assistant for NextTech, a software and AI solutions company in Dubai.
+The user's structured intent is: {intent.category}.
+
+Relevant knowledge base snippets:
+{chr(10).join(context.knowledge_snippets)}
+
+Rules:
+1. Answer politely in English.
+2. Only use the provided knowledge snippets for factual company information.
+3. If the answer is not available, clearly say so rather than inventing it.
+4. Be concise and professional.
+"""
+        started = time.perf_counter()
         try:
-            print("[Response Generator] Calling Gemini API...")
             response = self.client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
+                model=self.model,
+                contents=f"User Message: {user_message}",
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
-                    temperature=0.3,
+                    temperature=self.temperature,
                 ),
             )
-            reply = response.text
-            reasoning = f"Generated using gemini-2.5-flash based on {len(context.knowledge_snippets)} KB snippets."
-            
-        except Exception as e:
-            print(f"[Response Generator] Error calling Gemini: {e}")
+            reply = response.text or "I don't have enough information to answer that."
+            note = f"Grounded on {len(context.knowledge_snippets)} knowledge snippets"
+        except Exception as exc:
             reply = "An unexpected error occurred while processing your request."
-            reasoning = str(e)
+            note = f"Generation error: {type(exc).__name__}"
 
+        latency_ms = int((time.perf_counter() - started) * 1000)
         return AIResponse(
             text=reply.strip(),
-            reasoning=reasoning
+            reasoning=note,
+            provider=self.provider,
+            model=self.model,
+            latency_ms=latency_ms,
         )
+
 
 generator = ResponseGenerator()
