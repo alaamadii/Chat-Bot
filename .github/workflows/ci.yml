@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main, sprint-1-production-core, sprint-2-productization]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: pytest -q
+        env:
+          DATABASE_URL: sqlite:///./test_chatbot.db
+          JWT_SECRET_KEY: test-secret
+          ADMIN_USERNAME: admin
+          ADMIN_PASSWORD: admin123
+          AGENT_USERNAME: agent
+          AGENT_PASSWORD: agent123

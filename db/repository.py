@@ -45,6 +45,38 @@ class ConversationRepository:
                 db.expunge(conversation)
             return conversation
 
+    def list_conversations(self, limit: int = 100) -> list[dict]:
+        with SessionLocal() as db:
+            stmt = select(Conversation).order_by(Conversation.updated_at.desc()).limit(limit)
+            rows = list(db.scalars(stmt).all())
+            return [
+                {
+                    "id": c.id,
+                    "user_id": c.user_id,
+                    "channel": c.channel,
+                    "status": c.status.value,
+                    "created_at": c.created_at.isoformat(),
+                    "updated_at": c.updated_at.isoformat(),
+                }
+                for c in rows
+            ]
+
+    def list_messages(self, conversation_id: str) -> list[dict]:
+        with SessionLocal() as db:
+            stmt = select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at.asc())
+            rows = list(db.scalars(stmt).all())
+            return [
+                {
+                    "id": m.id,
+                    "role": m.role,
+                    "user_id": m.user_id,
+                    "channel": m.channel,
+                    "text": m.text,
+                    "created_at": m.created_at.isoformat(),
+                }
+                for m in rows
+            ]
+
     def set_status(self, conversation_id: str, status: ConversationStatus) -> None:
         with SessionLocal() as db:
             conversation = db.get(Conversation, conversation_id)
