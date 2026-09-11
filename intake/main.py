@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from api.admin import router as admin_router
 from api.ops import router as ops_router
+from api.quality import router as quality_router
 from auth.security import authenticate, create_access_token, require_roles
 from core.logging import configure_logging
 from db.database import init_db
@@ -67,9 +68,10 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="NextTech AI Support Bot", version="4.0.0", lifespan=lifespan)
+app = FastAPI(title="NextTech AI Support Bot", version="5.0.0", lifespan=lifespan)
 app.include_router(admin_router)
 app.include_router(ops_router)
+app.include_router(quality_router)
 
 
 @app.middleware("http")
@@ -325,4 +327,4 @@ async def get_session_history(session_id: str, user: dict = Depends(require_role
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "version": "4.0.0"}
+    return {"status": "ok", "version": "5.0.0"}
