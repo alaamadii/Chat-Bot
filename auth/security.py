@@ -29,11 +29,13 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def seed_default_users() -> None:
     defaults = [
-        (os.getenv("ADMIN_USERNAME", "admin"), os.getenv("ADMIN_PASSWORD", "admin123"), "admin"),
-        (os.getenv("AGENT_USERNAME", "agent"), os.getenv("AGENT_PASSWORD", "agent123"), "agent"),
+        (os.getenv("ADMIN_USERNAME"), os.getenv("ADMIN_PASSWORD"), "admin"),
+        (os.getenv("AGENT_USERNAME"), os.getenv("AGENT_PASSWORD"), "agent"),
     ]
     with SessionLocal() as db:
         for username, password, role in defaults:
+            if not username or not password:
+                continue
             if not db.scalar(select(User).where(User.username == username)):
                 db.add(User(username=username, password_hash=hash_password(password), role=role))
         db.commit()
