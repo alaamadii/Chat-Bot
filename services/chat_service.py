@@ -5,6 +5,9 @@ from actions.pipeline import execute_action
 from ai_brain.pipeline import process_message
 from analytics.pipeline import record_interaction
 from db.models import ConversationStatus
+from db.repository import conversation_repository
+from delivery.engine import engine as delivery_engine
+from delivery.models import FormattedMessage
 from delivery.pipeline import deliver_response
 from intake.models import IncomingMessage, NormalizedMessage
 from intake.normalizer import normalize_message
@@ -25,9 +28,37 @@ class ChatResult:
 class ChatService:
     def process(self, incoming: IncomingMessage, deliver: bool = True) -> ChatResult:
         session_id = session_manager.get_or_create_session(incoming.user_id, incoming.channel)
+        conversation = conversation_repository.get_conversation(session_id)
         history = session_manager.get_history(session_id)
         message = normalize_message(incoming, session_id=session_id)
         session_manager.add_message(message)
+
+        if conversation and conversation.status in {
+            ConversationStatus.WAITING_FOR_AGENT,
+            ConversationStatus.HUMAN_ACTIVE,
+        }:
+            reply = "Your message has been added to the support conversation. A human agent will respond here."
+            delivery = delivery_engine.send(
+                FormattedMessage(text=reply),
+                incoming.channel,
+                incoming.user_id,
+                send_network=deliver and incoming.channel == "whatsapp",
+            )
+            logger.info(
+                "message routed to human support",
+                extra={
+                    "conversation_id": session_id,
+                    "channel": incoming.channel,
+                    "event": "message_routed_to_agent",
+                },
+            )
+            return ChatResult(
+                message=message,
+                reply=reply,
+                action_taken="routed_to_agent",
+                delivery_success=delivery.success,
+                conversation_status=conversation.status.value,
+            )
 
         ai_output = process_message(message, history=history)
         execution_result = execute_action(message, ai_output)
