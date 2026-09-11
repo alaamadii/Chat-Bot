@@ -12,6 +12,7 @@ from delivery.pipeline import deliver_response
 from intake.models import IncomingMessage, NormalizedMessage
 from intake.normalizer import normalize_message
 from intake.session_manager import session_manager
+from services.quality import record_ai_metric
 
 logger = logging.getLogger(__name__)
 
@@ -46,11 +47,7 @@ class ChatService:
             )
             logger.info(
                 "message routed to human support",
-                extra={
-                    "conversation_id": session_id,
-                    "channel": incoming.channel,
-                    "event": "message_routed_to_agent",
-                },
+                extra={"conversation_id": session_id, "channel": incoming.channel, "event": "message_routed_to_agent"},
             )
             return ChatResult(
                 message=message,
@@ -61,6 +58,7 @@ class ChatService:
             )
 
         ai_output = process_message(message, history=history)
+        record_ai_metric(session_id, ai_output)
         execution_result = execute_action(message, ai_output)
 
         if execution_result.status == "handoff":
@@ -69,10 +67,7 @@ class ChatService:
         else:
             status = ConversationStatus.BOT_ACTIVE
 
-        delivery_status = deliver_response(
-            execution_result, incoming.channel, incoming.user_id, send_network=deliver
-        )
-
+        delivery_status = deliver_response(execution_result, incoming.channel, incoming.user_id, send_network=deliver)
         session_manager.add_assistant_message(
             session_id=session_id,
             user_id=incoming.user_id,
@@ -83,13 +78,8 @@ class ChatService:
 
         logger.info(
             "message processed",
-            extra={
-                "conversation_id": session_id,
-                "channel": incoming.channel,
-                "event": "message_processed",
-            },
+            extra={"conversation_id": session_id, "channel": incoming.channel, "event": "message_processed"},
         )
-
         return ChatResult(
             message=message,
             reply=execution_result.message_to_user,

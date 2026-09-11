@@ -1,24 +1,20 @@
-from ai_brain.models import AIResponse, Intent, FinalOutput
+from ai_brain.models import AIResponse, FinalOutput, Intent
+
 
 class ConfidenceScorer:
-    """
-    Task 7: Confidence Scorer
-    Rate answer quality & escalate
-    """
+    """Combine intent confidence with simple escalation policy."""
+
     def score(self, response: AIResponse, intent: Intent) -> FinalOutput:
-        # Base score on intent confidence
         score = intent.confidence
-        
-        # Artificial penalty if intent is support/complaint, as they usually need human touch
         if intent.category == "support":
             score -= 0.3
-            
-        escalate = score < 0.6
-        
+        score = max(0.0, min(1.0, score))
         return FinalOutput(
             response=response,
+            intent=intent,
             confidence_score=score,
-            escalate_to_human=escalate
+            escalate_to_human=score < 0.6,
         )
+
 
 scorer = ConfidenceScorer()
