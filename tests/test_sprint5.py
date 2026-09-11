@@ -1,4 +1,5 @@
 import os
+from datetime import datetime, timezone
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_chatbot.db")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
@@ -21,6 +22,7 @@ def test_router_uses_structured_intent_for_pricing(monkeypatch):
         channel="web_chat",
         original_text="pricing please",
         clean_text="pricing please",
+        received_at=datetime.now(timezone.utc),
         metadata={},
     )
     output = FinalOutput(
