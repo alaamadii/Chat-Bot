@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="NextTech AI Support Bot", version="5.0.0", lifespan=lifespan)
+app = FastAPI(title="NextTech AI Support Bot", version="6.0.0", lifespan=lifespan)
 app.include_router(admin_router)
 app.include_router(ops_router)
 app.include_router(quality_router)
@@ -327,4 +327,4 @@ async def get_session_history(session_id: str, user: dict = Depends(require_role
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "version": "5.0.0"}
+    return {"status": "ok", "version": "6.0.0"}
