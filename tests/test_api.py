@@ -18,7 +18,7 @@ def test_health_check():
         response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["version"] == "2.0.0"
+    assert response.json()["version"] == "3.0.0"
 
 
 def test_browser_pages_are_available():
