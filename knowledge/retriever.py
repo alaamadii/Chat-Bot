@@ -8,7 +8,7 @@ from db.repository import knowledge_repository
 
 
 class KnowledgeRetriever:
-    """Lightweight query-based retriever over static and managed knowledge."""
+    """Query retriever over static and managed knowledge using BM25 ranking."""
 
     def __init__(self, path: str = "knowledge_base.json"):
         self.path = Path(path)
@@ -41,19 +41,39 @@ class KnowledgeRetriever:
 
     def retrieve(self, query: str, top_k: int = 4) -> list[str]:
         chunks = self.all_chunks()
-        q = Counter(self._tokens(query))
-        if not q:
+        if not chunks:
+            return []
+        query_tokens = self._tokens(query)
+        if not query_tokens:
             return chunks[:top_k]
 
-        def score(chunk: str) -> float:
-            d = Counter(self._tokens(chunk))
-            dot = sum(q[t] * d.get(t, 0) for t in q)
-            q_norm = math.sqrt(sum(v * v for v in q.values()))
-            d_norm = math.sqrt(sum(v * v for v in d.values()))
-            return dot / (q_norm * d_norm) if q_norm and d_norm else 0.0
+        documents = [self._tokens(chunk) for chunk in chunks]
+        avg_len = sum(len(doc) for doc in documents) / max(len(documents), 1)
+        doc_freq = Counter()
+        for doc in documents:
+            doc_freq.update(set(doc))
 
-        ranked = sorted(((score(c), c) for c in chunks), reverse=True)
-        relevant = [chunk for similarity, chunk in ranked if similarity > 0][:top_k]
+        n_docs = len(documents)
+        k1, b = 1.5, 0.75
+
+        def bm25(doc: list[str]) -> float:
+            tf = Counter(doc)
+            score = 0.0
+            for token in query_tokens:
+                df = doc_freq.get(token, 0)
+                idf = math.log(1 + (n_docs - df + 0.5) / (df + 0.5))
+                freq = tf.get(token, 0)
+                denominator = freq + k1 * (1 - b + b * len(doc) / max(avg_len, 1))
+                if denominator:
+                    score += idf * (freq * (k1 + 1)) / denominator
+            return score
+
+        ranked = sorted(
+            ((bm25(doc), chunk) for doc, chunk in zip(documents, chunks)),
+            key=lambda item: item[0],
+            reverse=True,
+        )
+        relevant = [chunk for score, chunk in ranked if score > 0][:top_k]
         return relevant or chunks[: min(2, top_k)]
 
 
