@@ -4,20 +4,25 @@ import logging
 import os
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 
+from auth.security import authenticate, create_access_token, require_roles
 from core.logging import configure_logging
 from db.database import init_db
+from db.models import ConversationStatus
+from db.repository import conversation_repository
 from intake.models import IncomingMessage, NormalizedMessage
 from intake.session_manager import session_manager
 from services.chat_service import chat_service
 
 configure_logging()
 logger = logging.getLogger(__name__)
+ROOT = Path(__file__).resolve().parent.parent
 
 
 class ChatResponse(BaseModel):
@@ -28,13 +33,22 @@ class ChatResponse(BaseModel):
     conversation_status: str
 
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class StatusRequest(BaseModel):
+    status: ConversationStatus
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
     yield
 
 
-app = FastAPI(title="NextTech AI Support Bot", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="NextTech AI Support Bot", version="2.0.0", lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -71,24 +85,48 @@ def _extract_whatsapp_messages(payload: dict) -> list[IncomingMessage]:
                 sender = message.get("from")
                 text = message.get("text", {}).get("body", "")
                 if sender and text:
-                    result.append(
-                        IncomingMessage(
-                            channel="whatsapp",
-                            user_id=sender,
-                            text=text,
-                            timestamp=message.get("timestamp"),
-                            metadata={"message_id": message.get("id"), "raw": message},
-                        )
-                    )
+                    result.append(IncomingMessage(channel="whatsapp", user_id=sender, text=text, timestamp=message.get("timestamp"), metadata={"message_id": message.get("id"), "raw": message}))
     return result
 
 
+@app.get("/", include_in_schema=False)
+async def web_chat_page():
+    return FileResponse(ROOT / "web" / "index.html")
+
+
+@app.get("/dashboard", include_in_schema=False)
+async def dashboard_page():
+    return FileResponse(ROOT / "dashboard" / "index.html")
+
+
+@app.post("/auth/login")
+async def login(payload: LoginRequest):
+    user = authenticate(payload.username, payload.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    return {"access_token": create_access_token(user), "token_type": "bearer", "role": user["role"]}
+
+
+@app.get("/agent/conversations")
+async def agent_conversations(user: dict = Depends(require_roles("agent", "admin"))):
+    return conversation_repository.list_conversations()
+
+
+@app.get("/agent/conversations/{conversation_id}/messages")
+async def agent_messages(conversation_id: str, user: dict = Depends(require_roles("agent", "admin"))):
+    return conversation_repository.list_messages(conversation_id)
+
+
+@app.patch("/agent/conversations/{conversation_id}/status")
+async def update_conversation_status(conversation_id: str, payload: StatusRequest, user: dict = Depends(require_roles("agent", "admin"))):
+    if not conversation_repository.get_conversation(conversation_id):
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    conversation_repository.set_status(conversation_id, payload.status)
+    return {"id": conversation_id, "status": payload.status.value}
+
+
 @app.get("/webhook/whatsapp", response_class=PlainTextResponse)
-async def verify_whatsapp_webhook(
-    mode: str = Query(alias="hub.mode"),
-    verify_token: str = Query(alias="hub.verify_token"),
-    challenge: str = Query(alias="hub.challenge"),
-):
+async def verify_whatsapp_webhook(mode: str = Query(alias="hub.mode"), verify_token: str = Query(alias="hub.verify_token"), challenge: str = Query(alias="hub.challenge")):
     expected_token = os.getenv("WHATSAPP_VERIFY_TOKEN")
     if mode == "subscribe" and expected_token and hmac.compare_digest(verify_token, expected_token):
         return challenge
@@ -100,20 +138,10 @@ async def whatsapp_webhook(request: Request, x_hub_signature_256: Optional[str] 
     raw_body = await request.body()
     _verify_meta_signature(raw_body, x_hub_signature_256)
     payload = await request.json()
-    incoming_messages = _extract_whatsapp_messages(payload)
-
     results = []
-    for incoming in incoming_messages:
+    for incoming in _extract_whatsapp_messages(payload):
         result = chat_service.process(incoming, deliver=True)
-        results.append(
-            ChatResponse(
-                session_id=result.message.session_id,
-                reply=result.reply,
-                action_taken=result.action_taken,
-                delivery_success=result.delivery_success,
-                conversation_status=result.conversation_status,
-            )
-        )
+        results.append(ChatResponse(session_id=result.message.session_id, reply=result.reply, action_taken=result.action_taken, delivery_success=result.delivery_success, conversation_status=result.conversation_status))
     return {"processed": len(results), "results": [item.model_dump() for item in results]}
 
 
@@ -121,17 +149,11 @@ async def whatsapp_webhook(request: Request, x_hub_signature_256: Optional[str] 
 async def web_webhook(msg: IncomingMessage):
     msg.channel = "web_chat"
     result = chat_service.process(msg, deliver=False)
-    return ChatResponse(
-        session_id=result.message.session_id,
-        reply=result.reply,
-        action_taken=result.action_taken,
-        delivery_success=result.delivery_success,
-        conversation_status=result.conversation_status,
-    )
+    return ChatResponse(session_id=result.message.session_id, reply=result.reply, action_taken=result.action_taken, delivery_success=result.delivery_success, conversation_status=result.conversation_status)
 
 
 @app.get("/session/{session_id}/history", response_model=List[NormalizedMessage])
-async def get_session_history(session_id: str):
+async def get_session_history(session_id: str, user: dict = Depends(require_roles("agent", "admin"))):
     history = session_manager.get_history(session_id)
     if not history:
         raise HTTPException(status_code=404, detail="Session not found or empty")
@@ -140,4 +162,4 @@ async def get_session_history(session_id: str):
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "2.0.0"}
