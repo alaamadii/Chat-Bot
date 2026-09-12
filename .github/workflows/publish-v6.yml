@@ -1,0 +1,41 @@
+name: Publish v6.0.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-v6.yml'
+      - 'docs/releases/v6.0.0.md'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check whether release already exists
+        id: release_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view v6.0.0 >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish v6.0.0 release
+        if: steps.release_check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v6.0.0 \
+            --target "$GITHUB_SHA" \
+            --title "NextTech AI Support Bot v6.0.0" \
+            --notes-file docs/releases/v6.0.0.md \
+            --latest
