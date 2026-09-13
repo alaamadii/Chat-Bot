@@ -16,12 +16,11 @@ class Base(DeclarativeBase):
 
 def init_db() -> None:
     import db.models  # noqa: F401
+    import db.reliability_models  # noqa: F401
     import knowledge.document_models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
 
-    # Seed bootstrap users only when they do not already exist. Production
-    # deployments should override the default credentials via environment.
     from auth.security import seed_default_users
 
     seed_default_users()
