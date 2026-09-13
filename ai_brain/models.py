@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +19,8 @@ class AIResponse(BaseModel):
     provider: str = Field(default="unknown")
     model: str = Field(default="unknown")
     latency_ms: int = Field(default=0, ge=0)
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
 
 
 class FinalOutput(BaseModel):

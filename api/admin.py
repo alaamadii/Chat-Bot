@@ -53,10 +53,7 @@ async def list_knowledge_documents(user: dict = Depends(require_roles("admin")))
 
 
 @router.post("/knowledge/documents", status_code=201)
-async def ingest_knowledge_document(
-    payload: IngestKnowledgeDocumentRequest,
-    user: dict = Depends(require_roles("admin")),
-):
+async def ingest_knowledge_document(payload: IngestKnowledgeDocumentRequest, user: dict = Depends(require_roles("admin"))):
     try:
         created = document_store.ingest(
             title=payload.title,
@@ -67,14 +64,18 @@ async def ingest_knowledge_document(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    record_audit(
-        user["username"],
-        "knowledge.document_ingested",
-        "knowledge_document",
-        created["id"],
-        {"title": created["title"], "source": created["source"], "chunk_count": created["chunk_count"]},
-    )
+    record_audit(user["username"], "knowledge.document_ingested", "knowledge_document", created["id"], {"title": created["title"], "source": created["source"], "chunk_count": created["chunk_count"]})
     return created
+
+
+@router.post("/knowledge/documents/{document_id}/reindex")
+async def reindex_knowledge_document(document_id: str, user: dict = Depends(require_roles("admin"))):
+    try:
+        result = document_store.reindex_document(document_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    record_audit(user["username"], "knowledge.document_reindexed", "knowledge_document", document_id, result)
+    return result
 
 
 @router.delete("/knowledge/documents/{document_id}", status_code=204)

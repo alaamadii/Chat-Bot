@@ -2,34 +2,28 @@ import os
 import time
 
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
 
 from ai_brain.models import AIResponse, Context, Intent
+from ai_brain.providers import get_llm_provider
 
 load_dotenv()
 
 
 class ResponseGenerator:
-    """Generate grounded responses through a configurable Gemini model."""
+    """Generate grounded responses through a configurable provider abstraction."""
 
     def __init__(self):
-        self.provider = "gemini"
-        self.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         self.temperature = float(os.getenv("GEMINI_TEMPERATURE", "0.3"))
-        try:
-            self.client = genai.Client()
-        except Exception:
-            self.client = None
 
     def generate(self, user_message: str, intent: Intent, context: Context) -> AIResponse:
-        if not self.client:
+        try:
+            provider = get_llm_provider()
+        except Exception as exc:
             return AIResponse(
-                text="Sorry, I am having trouble connecting to the server. Please try again later.",
-                reasoning="LLM client unavailable",
-                provider=self.provider,
-                model=self.model,
-                latency_ms=0,
+                text="Sorry, I am having trouble connecting to the AI service. Please try again later.",
+                reasoning=f"Provider init error: {type(exc).__name__}",
+                provider="unavailable",
+                model="unavailable",
             )
 
         system_instruction = f"""
@@ -47,27 +41,30 @@ Rules:
 """
         started = time.perf_counter()
         try:
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=f"User Message: {user_message}",
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=self.temperature,
-                ),
+            result = provider.generate(
+                prompt=f"User Message: {user_message}",
+                system_instruction=system_instruction,
+                temperature=self.temperature,
             )
-            reply = response.text or "I don't have enough information to answer that."
+            reply = result.text
+            input_tokens = result.input_tokens
+            output_tokens = result.output_tokens
             note = f"Grounded on {len(context.knowledge_snippets)} knowledge snippets"
         except Exception as exc:
             reply = "An unexpected error occurred while processing your request."
+            input_tokens = 0
+            output_tokens = 0
             note = f"Generation error: {type(exc).__name__}"
 
         latency_ms = int((time.perf_counter() - started) * 1000)
         return AIResponse(
             text=reply.strip(),
             reasoning=note,
-            provider=self.provider,
-            model=self.model,
+            provider=provider.name,
+            model=provider.model,
             latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
 
 
