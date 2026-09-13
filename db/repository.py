@@ -85,6 +85,14 @@ class ConversationRepository:
             conversation = db.get(Conversation, conversation_id)
             if conversation:
                 conversation.status = status
+                if status in {ConversationStatus.RESOLVED, ConversationStatus.CLOSED}:
+                    assignment = db.scalar(
+                        select(ConversationAssignment).where(
+                            ConversationAssignment.conversation_id == conversation_id
+                        )
+                    )
+                    if assignment:
+                        db.delete(assignment)
                 db.commit()
 
     @staticmethod
