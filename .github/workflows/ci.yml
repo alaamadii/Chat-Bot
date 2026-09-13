@@ -33,3 +33,5 @@ jobs:
           ADMIN_PASSWORD: admin123
           AGENT_USERNAME: agent
           AGENT_PASSWORD: agent123
+      - name: Validate production Docker image builds
+        run: docker build -t nexttech-ai-support:ci .
