@@ -1,4 +1,5 @@
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -11,6 +12,9 @@ class WebhookIdempotencyService:
     def begin(self, provider: str, external_event_id: str) -> bool:
         if not external_event_id:
             return True
+        lease_seconds = max(1, int(os.getenv("WEBHOOK_PROCESSING_LEASE_SECONDS", "300")))
+        stale_before = datetime.utcnow() - timedelta(seconds=lease_seconds)
+
         with SessionLocal() as db:
             existing = db.scalar(
                 select(WebhookEvent).where(
@@ -19,8 +23,12 @@ class WebhookIdempotencyService:
                 )
             )
             if existing:
-                if existing.status == "failed":
+                retryable = existing.status == "failed" or (
+                    existing.status == "processing" and existing.received_at <= stale_before
+                )
+                if retryable:
                     existing.status = "processing"
+                    existing.received_at = datetime.utcnow()
                     existing.processed_at = None
                     db.commit()
                     return True

@@ -5,15 +5,38 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+psycopg://chatbot:chatbot@db:5432/chatbot
+      ENVIRONMENT: ${ENVIRONMENT:-development}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-change-me}
+      WEB_SESSION_SECRET: ${WEB_SESSION_SECRET:-dev-web-session-secret-change-me}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       WHATSAPP_VERIFY_TOKEN: ${WHATSAPP_VERIFY_TOKEN:-}
       WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
       WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
       WHATSAPP_APP_SECRET: ${WHATSAPP_APP_SECRET:-}
+      WEBHOOK_PROCESSING_LEASE_SECONDS: ${WEBHOOK_PROCESSING_LEASE_SECONDS:-300}
+      OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-5}
+      OUTBOX_RETRY_BASE_SECONDS: ${OUTBOX_RETRY_BASE_SECONDS:-5}
     depends_on:
       db:
         condition: service_healthy
+
+  outbox-worker:
+    build: .
+    command: ["python", "-m", "services.outbox_worker"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://chatbot:chatbot@db:5432/chatbot
+      WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN:-}
+      WHATSAPP_PHONE_NUMBER_ID: ${WHATSAPP_PHONE_NUMBER_ID:-}
+      WHATSAPP_API_VERSION: ${WHATSAPP_API_VERSION:-v23.0}
+      OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-5}
+      OUTBOX_RETRY_BASE_SECONDS: ${OUTBOX_RETRY_BASE_SECONDS:-5}
+      OUTBOX_POLL_SECONDS: ${OUTBOX_POLL_SECONDS:-2}
+      OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-50}
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
     image: postgres:16-alpine
     environment:
