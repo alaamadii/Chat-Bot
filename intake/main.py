@@ -25,6 +25,7 @@ from intake.models import IncomingMessage, NormalizedMessage
 from intake.session_manager import session_manager
 from services.audit import record_audit
 from services.chat_service import chat_service
+from services.idempotency import webhook_idempotency
 
 configure_logging()
 logger = logging.getLogger(__name__)
@@ -108,15 +109,13 @@ def _extract_whatsapp_messages(payload: dict) -> list[IncomingMessage]:
                 sender = message.get("from")
                 text = message.get("text", {}).get("body", "")
                 if sender and text:
-                    result.append(
-                        IncomingMessage(
-                            channel="whatsapp",
-                            user_id=sender,
-                            text=text,
-                            timestamp=message.get("timestamp"),
-                            metadata={"message_id": message.get("id"), "raw": message},
-                        )
-                    )
+                    result.append(IncomingMessage(
+                        channel="whatsapp",
+                        user_id=sender,
+                        text=text,
+                        timestamp=message.get("timestamp"),
+                        metadata={"message_id": message.get("id"), "raw": message},
+                    ))
     return result
 
 
@@ -135,12 +134,7 @@ async def login(payload: LoginRequest):
     user = authenticate(payload.username, payload.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    return {
-        "access_token": create_access_token(user),
-        "token_type": "bearer",
-        "role": user["role"],
-        "username": user["username"],
-    }
+    return {"access_token": create_access_token(user), "token_type": "bearer", "role": user["role"], "username": user["username"]}
 
 
 @app.get("/agent/conversations")
@@ -156,28 +150,40 @@ async def agent_messages(conversation_id: str, user: dict = Depends(require_role
 
 
 @app.post("/agent/conversations/{conversation_id}/assign")
-async def assign_conversation(
-    conversation_id: str,
-    payload: AssignmentRequest,
-    user: dict = Depends(require_roles("agent", "admin")),
-):
+async def assign_conversation(conversation_id: str, payload: AssignmentRequest, user: dict = Depends(require_roles("agent", "admin"))):
     target = payload.agent_username or user["username"]
     if user["role"] != "admin" and target != user["username"]:
-        raise HTTPException(status_code=403, detail="Agents may only assign conversations to themselves")
+        raise HTTPException(status_code=403, detail="Agents may only claim conversations for themselves")
     try:
-        assignment = conversation_repository.assign_agent(conversation_id, target)
+        if user["role"] == "admin" and payload.agent_username and conversation_repository.get_assignment(conversation_id):
+            assignment = conversation_repository.transfer_agent(conversation_id, target)
+            action = "conversation.transferred"
+        else:
+            assignment = conversation_repository.claim_agent(conversation_id, target)
+            action = "conversation.claimed"
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    record_audit(user["username"], "conversation.assigned", "conversation", conversation_id, {"agent": target})
+        detail = str(exc)
+        status_code = 409 if "already assigned" in detail else 404
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    record_audit(user["username"], action, "conversation", conversation_id, {"agent": target})
     return assignment
 
 
+@app.delete("/agent/conversations/{conversation_id}/assignment")
+async def unassign_conversation(conversation_id: str, user: dict = Depends(require_roles("agent", "admin"))):
+    assigned_agent = conversation_repository.get_assignment(conversation_id)
+    if assigned_agent and assigned_agent != user["username"] and user["role"] != "admin":
+        raise HTTPException(status_code=409, detail=f"Conversation is assigned to {assigned_agent}")
+    try:
+        result = conversation_repository.unassign_agent(conversation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    record_audit(user["username"], "conversation.unassigned", "conversation", conversation_id)
+    return result
+
+
 @app.post("/agent/conversations/{conversation_id}/reply")
-async def agent_reply(
-    conversation_id: str,
-    payload: AgentReplyRequest,
-    user: dict = Depends(require_roles("agent", "admin")),
-):
+async def agent_reply(conversation_id: str, payload: AgentReplyRequest, user: dict = Depends(require_roles("agent", "admin"))):
     conversation = conversation_repository.get_conversation(conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -186,7 +192,19 @@ async def agent_reply(
     if assigned_agent and assigned_agent != user["username"] and user["role"] != "admin":
         raise HTTPException(status_code=409, detail=f"Conversation is assigned to {assigned_agent}")
     if not assigned_agent:
-        conversation_repository.assign_agent(conversation_id, user["username"])
+        try:
+            conversation_repository.claim_agent(conversation_id, user["username"])
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    message_id = conversation_repository.add_text_message(
+        conversation_id=conversation_id,
+        role="agent",
+        user_id=user["username"],
+        channel=conversation.channel,
+        text=payload.text,
+        metadata={"agent_username": user["username"], "delivery_status": "pending"},
+    )
 
     delivery = delivery_engine.send(
         FormattedMessage(text=payload.text),
@@ -195,32 +213,20 @@ async def agent_reply(
         send_network=conversation.channel == "whatsapp",
     )
     if not delivery.success:
+        conversation_repository.update_message_metadata(message_id, {
+            "delivery_status": "failed",
+            "delivery_error": delivery.error_details or "Delivery failed",
+        })
         raise HTTPException(status_code=502, detail=delivery.error_details or "Delivery failed")
 
-    conversation_repository.add_text_message(
-        conversation_id=conversation_id,
-        role="agent",
-        user_id=user["username"],
-        channel=conversation.channel,
-        text=payload.text,
-        metadata={"agent_username": user["username"]},
-    )
+    conversation_repository.update_message_metadata(message_id, {"delivery_status": "sent"})
     conversation_repository.set_status(conversation_id, ConversationStatus.HUMAN_ACTIVE)
-    record_audit(user["username"], "conversation.replied", "conversation", conversation_id, {"channel": conversation.channel})
-    return {
-        "conversation_id": conversation_id,
-        "delivered": True,
-        "channel": conversation.channel,
-        "status": ConversationStatus.HUMAN_ACTIVE.value,
-    }
+    record_audit(user["username"], "conversation.replied", "conversation", conversation_id, {"channel": conversation.channel, "message_id": message_id})
+    return {"conversation_id": conversation_id, "message_id": message_id, "delivered": True, "channel": conversation.channel, "status": ConversationStatus.HUMAN_ACTIVE.value}
 
 
 @app.patch("/agent/conversations/{conversation_id}/status")
-async def update_conversation_status(
-    conversation_id: str,
-    payload: StatusRequest,
-    user: dict = Depends(require_roles("agent", "admin")),
-):
+async def update_conversation_status(conversation_id: str, payload: StatusRequest, user: dict = Depends(require_roles("agent", "admin"))):
     if not conversation_repository.get_conversation(conversation_id):
         raise HTTPException(status_code=404, detail="Conversation not found")
     assigned_agent = conversation_repository.get_assignment(conversation_id)
@@ -242,16 +248,8 @@ async def list_knowledge(user: dict = Depends(require_roles("agent", "admin"))):
 
 
 @app.post("/knowledge", status_code=201)
-async def create_knowledge(
-    payload: KnowledgeRequest,
-    user: dict = Depends(require_roles("admin")),
-):
-    created = knowledge_repository.create_entry(
-        title=payload.title,
-        content=payload.content,
-        category=payload.category,
-        created_by=user["username"],
-    )
+async def create_knowledge(payload: KnowledgeRequest, user: dict = Depends(require_roles("admin"))):
+    created = knowledge_repository.create_entry(title=payload.title, content=payload.content, category=payload.category, created_by=user["username"])
     record_audit(user["username"], "knowledge.created", "knowledge", created["id"], {"title": payload.title})
     return created
 
@@ -273,11 +271,7 @@ async def web_conversation_messages(conversation_id: str, user_id: str = Query(m
 
 
 @app.get("/webhook/whatsapp", response_class=PlainTextResponse)
-async def verify_whatsapp_webhook(
-    mode: str = Query(alias="hub.mode"),
-    verify_token: str = Query(alias="hub.verify_token"),
-    challenge: str = Query(alias="hub.challenge"),
-):
+async def verify_whatsapp_webhook(mode: str = Query(alias="hub.mode"), verify_token: str = Query(alias="hub.verify_token"), challenge: str = Query(alias="hub.challenge")):
     expected_token = os.getenv("WHATSAPP_VERIFY_TOKEN")
     if mode == "subscribe" and expected_token and hmac.compare_digest(verify_token, expected_token):
         return challenge
@@ -290,18 +284,28 @@ async def whatsapp_webhook(request: Request, x_hub_signature_256: Optional[str] 
     _verify_meta_signature(raw_body, x_hub_signature_256)
     payload = await request.json()
     results = []
+    duplicates = 0
     for incoming in _extract_whatsapp_messages(payload):
-        result = chat_service.process(incoming, deliver=True)
-        results.append(
-            ChatResponse(
-                session_id=result.message.session_id,
-                reply=result.reply,
-                action_taken=result.action_taken,
-                delivery_success=result.delivery_success,
-                conversation_status=result.conversation_status,
-            )
-        )
-    return {"processed": len(results), "results": [item.model_dump() for item in results]}
+        event_id = str(incoming.metadata.get("message_id") or "")
+        if event_id and not webhook_idempotency.begin("whatsapp", event_id):
+            duplicates += 1
+            continue
+        try:
+            result = chat_service.process(incoming, deliver=True)
+            if event_id:
+                webhook_idempotency.complete("whatsapp", event_id)
+        except Exception:
+            if event_id:
+                webhook_idempotency.fail("whatsapp", event_id)
+            raise
+        results.append(ChatResponse(
+            session_id=result.message.session_id,
+            reply=result.reply,
+            action_taken=result.action_taken,
+            delivery_success=result.delivery_success,
+            conversation_status=result.conversation_status,
+        ))
+    return {"processed": len(results), "duplicates": duplicates, "results": [item.model_dump() for item in results]}
 
 
 @app.post("/webhook/web", response_model=ChatResponse)
