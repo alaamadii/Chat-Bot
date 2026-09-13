@@ -1,5 +1,7 @@
+import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import os
 import uuid
@@ -8,14 +10,16 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from api.admin import router as admin_router
 from api.ops import router as ops_router
 from api.quality import router as quality_router
 from auth.security import authenticate, create_access_token, require_roles
+from auth.web_session import create_web_session, validate_production_secrets, verify_web_session
 from core.logging import configure_logging
+from core.rate_limit import enforce_public_rate_limit
 from db.database import init_db
 from db.models import ConversationStatus
 from db.repository import conversation_repository, knowledge_repository
@@ -38,6 +42,12 @@ class ChatResponse(BaseModel):
     action_taken: str
     delivery_success: bool
     conversation_status: str
+    session_token: Optional[str] = None
+
+
+class WebSessionResponse(BaseModel):
+    user_id: str
+    session_token: str
 
 
 class LoginRequest(BaseModel):
@@ -65,11 +75,12 @@ class KnowledgeRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    validate_production_secrets()
     init_db()
     yield
 
 
-app = FastAPI(title="NextTech AI Support Bot", version="6.0.0", lifespan=lifespan)
+app = FastAPI(title="NextTech AI Support Bot", version="6.1.0", lifespan=lifespan)
 app.include_router(admin_router)
 app.include_router(ops_router)
 app.include_router(quality_router)
@@ -84,6 +95,9 @@ async def request_context(request: Request, call_next):
         logger.exception("unhandled request error", extra={"request_id": request_id, "event": "request_failed"})
         raise
     response.headers["X-Request-ID"] = request_id
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["X-Frame-Options"] = "DENY"
     return response
 
 
@@ -119,6 +133,18 @@ def _extract_whatsapp_messages(payload: dict) -> list[IncomingMessage]:
     return result
 
 
+def _web_session_required() -> bool:
+    return os.getenv("WEB_SESSION_REQUIRED", "false").lower() in {"1", "true", "yes"} or os.getenv("ENVIRONMENT", "development").lower() == "production"
+
+
+def _verify_web_request(token: Optional[str], user_id: str, conversation_id: Optional[str] = None) -> None:
+    if token:
+        verify_web_session(token, user_id=user_id, conversation_id=conversation_id)
+        return
+    if _web_session_required():
+        raise HTTPException(status_code=401, detail="Signed web session required")
+
+
 @app.get("/", include_in_schema=False)
 async def web_chat_page():
     return FileResponse(ROOT / "web" / "index.html")
@@ -129,8 +155,16 @@ async def dashboard_page():
     return FileResponse(ROOT / "dashboard" / "index.html")
 
 
+@app.post("/web/session", response_model=WebSessionResponse)
+async def start_web_session(request: Request):
+    enforce_public_rate_limit(request, "web-session")
+    user_id = "web-" + str(uuid.uuid4())
+    return WebSessionResponse(user_id=user_id, session_token=create_web_session(user_id, ""))
+
+
 @app.post("/auth/login")
-async def login(payload: LoginRequest):
+async def login(payload: LoginRequest, request: Request):
+    enforce_public_rate_limit(request, "login")
     user = authenticate(payload.username, payload.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -263,11 +297,46 @@ async def delete_knowledge(entry_id: str, user: dict = Depends(require_roles("ad
 
 
 @app.get("/web/conversations/{conversation_id}/messages")
-async def web_conversation_messages(conversation_id: str, user_id: str = Query(min_length=1)):
+async def web_conversation_messages(
+    conversation_id: str,
+    user_id: str = Query(min_length=1),
+    session_token: Optional[str] = Query(default=None),
+):
+    _verify_web_request(session_token, user_id, conversation_id)
     conversation = conversation_repository.get_conversation(conversation_id)
     if not conversation or conversation.channel != "web_chat" or conversation.user_id != user_id:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation_repository.list_messages(conversation_id)
+
+
+@app.get("/web/conversations/{conversation_id}/events")
+async def web_conversation_events(
+    request: Request,
+    conversation_id: str,
+    user_id: str = Query(min_length=1),
+    session_token: str = Query(min_length=1),
+):
+    enforce_public_rate_limit(request, "web-events")
+    verify_web_session(session_token, user_id=user_id, conversation_id=conversation_id)
+    conversation = conversation_repository.get_conversation(conversation_id)
+    if not conversation or conversation.channel != "web_chat" or conversation.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    async def stream():
+        seen: set[str] = set()
+        for _ in range(55):
+            if await request.is_disconnected():
+                break
+            messages = conversation_repository.list_messages(conversation_id)
+            for message in messages:
+                if message["id"] in seen:
+                    continue
+                seen.add(message["id"])
+                yield f"event: message\ndata: {json.dumps(message)}\n\n"
+            yield ": keepalive\n\n"
+            await asyncio.sleep(1)
+
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/webhook/whatsapp", response_class=PlainTextResponse)
@@ -309,15 +378,28 @@ async def whatsapp_webhook(request: Request, x_hub_signature_256: Optional[str] 
 
 
 @app.post("/webhook/web", response_model=ChatResponse)
-async def web_webhook(msg: IncomingMessage):
+async def web_webhook(msg: IncomingMessage, request: Request, x_web_session: Optional[str] = Header(default=None)):
+    enforce_public_rate_limit(request, "web-chat")
     msg.channel = "web_chat"
+    if x_web_session:
+        payload = verify_web_session(x_web_session, user_id=msg.user_id)
+        scoped_conversation = payload.get("conversation_id")
+        if scoped_conversation:
+            conversation = conversation_repository.get_conversation(scoped_conversation)
+            if not conversation or conversation.user_id != msg.user_id or conversation.channel != "web_chat":
+                raise HTTPException(status_code=403, detail="Web session does not own this conversation")
+    elif _web_session_required():
+        raise HTTPException(status_code=401, detail="Signed web session required")
+
     result = chat_service.process(msg, deliver=False)
+    token = create_web_session(msg.user_id, result.message.session_id)
     return ChatResponse(
         session_id=result.message.session_id,
         reply=result.reply,
         action_taken=result.action_taken,
         delivery_success=result.delivery_success,
         conversation_status=result.conversation_status,
+        session_token=token,
     )
 
 
@@ -331,4 +413,4 @@ async def get_session_history(session_id: str, user: dict = Depends(require_role
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "version": "6.0.0"}
+    return {"status": "ok", "version": "6.1.0"}
