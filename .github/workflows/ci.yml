@@ -14,15 +14,21 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Lint for syntax and undefined names
+        run: ruff check . --select E9,F63,F7,F82
+      - name: High-severity security scan
+        run: bandit -q -r api auth core db intake services knowledge actions ai_brain delivery -x tests -lll
       - name: Validate database migrations
         run: alembic upgrade head
         env:
           DATABASE_URL: sqlite:///./migration_test.db
-      - run: pytest -q
+      - name: Test with coverage gate
+        run: pytest -q --cov=api --cov=auth --cov=core --cov=db --cov=intake --cov=services --cov=knowledge --cov-report=term --cov-fail-under=25
         env:
           DATABASE_URL: sqlite:///./test_chatbot.db
           JWT_SECRET_KEY: test-secret
+          WEB_SESSION_SECRET: test-web-session-secret
           ADMIN_USERNAME: admin
           ADMIN_PASSWORD: admin123
           AGENT_USERNAME: agent
