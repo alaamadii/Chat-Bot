@@ -1,7 +1,7 @@
 import os
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select, update
 
 from db.database import SessionLocal
 from db.reliability_models import OutboundDelivery
@@ -37,29 +37,71 @@ class OutboxService:
             return item
 
     def deliver_now(self, item_id: str) -> DeliveryStatus:
+        now = datetime.utcnow()
+        lease_seconds = max(5, int(os.getenv("OUTBOX_PROCESSING_LEASE_SECONDS", "60")))
+
         with SessionLocal() as db:
+            claim = db.execute(
+                update(OutboundDelivery)
+                .where(
+                    OutboundDelivery.id == item_id,
+                    OutboundDelivery.attempt_count < OutboundDelivery.max_attempts,
+                    or_(
+                        OutboundDelivery.status == "pending",
+                        and_(
+                            OutboundDelivery.status == "processing",
+                            OutboundDelivery.next_attempt_at <= now,
+                        ),
+                    ),
+                )
+                .values(
+                    status="processing",
+                    attempt_count=OutboundDelivery.attempt_count + 1,
+                    next_attempt_at=now + timedelta(seconds=lease_seconds),
+                )
+            )
+            db.commit()
+
             item = db.get(OutboundDelivery, item_id)
             if not item:
                 raise ValueError("Outbox item not found")
-            if item.status == "sent":
-                return DeliveryStatus(success=True, channel=item.channel, timestamp=(item.sent_at or datetime.utcnow()).isoformat())
-            if item.status == "dead":
-                return DeliveryStatus(success=False, channel=item.channel, timestamp=datetime.utcnow().isoformat(), error_details=item.last_error or "Delivery exhausted retries")
-            if item.attempt_count >= item.max_attempts:
-                item.status = "dead"
-                db.commit()
-                return DeliveryStatus(success=False, channel=item.channel, timestamp=datetime.utcnow().isoformat(), error_details=item.last_error or "Delivery exhausted retries")
 
-            item.status = "processing"
-            item.attempt_count += 1
-            db.commit()
+            if not claim.rowcount:
+                if item.status == "sent":
+                    return DeliveryStatus(
+                        success=True,
+                        channel=item.channel,
+                        timestamp=(item.sent_at or now).isoformat(),
+                    )
+                if item.status == "dead" or item.attempt_count >= item.max_attempts:
+                    if item.status != "dead":
+                        item.status = "dead"
+                        db.commit()
+                    return DeliveryStatus(
+                        success=False,
+                        channel=item.channel,
+                        timestamp=now.isoformat(),
+                        error_details=item.last_error or "Delivery exhausted retries",
+                    )
+                return DeliveryStatus(
+                    success=False,
+                    channel=item.channel,
+                    timestamp=now.isoformat(),
+                    error_details="Delivery already claimed by another worker",
+                )
+
             channel = item.channel
             recipient = item.recipient
             text = item.payload_text
             attempt = item.attempt_count
             max_attempts = item.max_attempts
 
-        result = engine.send(FormattedMessage(text=text), channel, recipient, send_network=channel == "whatsapp")
+        result = engine.send(
+            FormattedMessage(text=text),
+            channel,
+            recipient,
+            send_network=channel == "whatsapp",
+        )
 
         with SessionLocal() as db:
             item = db.get(OutboundDelivery, item_id)
@@ -76,30 +118,50 @@ class OutboxService:
                 else:
                     base = float(os.getenv("OUTBOX_RETRY_BASE_SECONDS", "5"))
                     item.status = "pending"
-                    item.next_attempt_at = datetime.utcnow() + timedelta(seconds=base * (2 ** max(attempt - 1, 0)))
+                    item.next_attempt_at = datetime.utcnow() + timedelta(
+                        seconds=base * (2 ** max(attempt - 1, 0))
+                    )
             db.commit()
         return result
 
     def process_pending(self, limit: int = 50) -> dict:
         now = datetime.utcnow()
         with SessionLocal() as db:
-            ids = list(db.scalars(
-                select(OutboundDelivery.id)
-                .where(
-                    OutboundDelivery.status == "pending",
-                    OutboundDelivery.next_attempt_at <= now,
-                )
-                .order_by(OutboundDelivery.created_at.asc())
-                .limit(limit)
-            ).all())
-        sent = failed = 0
+            ids = list(
+                db.scalars(
+                    select(OutboundDelivery.id)
+                    .where(
+                        or_(
+                            and_(
+                                OutboundDelivery.status == "pending",
+                                OutboundDelivery.next_attempt_at <= now,
+                            ),
+                            and_(
+                                OutboundDelivery.status == "processing",
+                                OutboundDelivery.next_attempt_at <= now,
+                            ),
+                        )
+                    )
+                    .order_by(OutboundDelivery.created_at.asc())
+                    .limit(limit)
+                ).all()
+            )
+
+        sent = failed = skipped = 0
         for item_id in ids:
             result = self.deliver_now(item_id)
             if result.success:
                 sent += 1
+            elif result.error_details == "Delivery already claimed by another worker":
+                skipped += 1
             else:
                 failed += 1
-        return {"processed": len(ids), "sent": sent, "failed": failed}
+        return {
+            "processed": sent + failed,
+            "sent": sent,
+            "failed": failed,
+            "skipped": skipped,
+        }
 
     def get(self, item_id: str) -> dict | None:
         with SessionLocal() as db:
