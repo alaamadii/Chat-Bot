@@ -1,5 +1,4 @@
 import os
-import uuid
 from datetime import datetime, timedelta
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_chatbot.db")
@@ -8,6 +7,7 @@ os.environ.setdefault("WEB_SESSION_SECRET", "test-web-session-secret")
 
 from fastapi.testclient import TestClient
 from redis import RedisError
+from starlette.requests import Request
 
 from core.rate_limit import client_key, redis_rate_limiter
 from db.database import SessionLocal, init_db
@@ -70,15 +70,23 @@ def test_required_redis_failure_returns_503(monkeypatch):
 
 
 def test_proxy_header_is_only_trusted_when_enabled(monkeypatch):
-    with TestClient(app) as client:
-        request = client.build_request("GET", "/", headers={"X-Forwarded-For": "203.0.113.10"})
-        request.scope["client"] = ("127.0.0.1", 12345)
+    request = Request({
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "query_string": b"",
+        "headers": [(b"x-forwarded-for", b"203.0.113.10")],
+        "client": ("127.0.0.1", 12345),
+        "server": ("testserver", 80),
+        "scheme": "http",
+        "http_version": "1.1",
+    })
 
-        monkeypatch.setenv("TRUST_PROXY_HEADERS", "false")
-        assert client_key(request, "scope") == "scope:127.0.0.1"
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "false")
+    assert client_key(request, "scope") == "scope:127.0.0.1"
 
-        monkeypatch.setenv("TRUST_PROXY_HEADERS", "true")
-        assert client_key(request, "scope") == "scope:203.0.113.10"
+    monkeypatch.setenv("TRUST_PROXY_HEADERS", "true")
+    assert client_key(request, "scope") == "scope:203.0.113.10"
 
 
 def test_outbox_processing_lease_prevents_duplicate_delivery(monkeypatch):
