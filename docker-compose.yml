@@ -5,6 +5,9 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql+psycopg://chatbot:chatbot@db:5432/chatbot
+      REDIS_URL: redis://redis:6379/0
+      REDIS_REQUIRED: ${REDIS_REQUIRED:-false}
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-secret-change-me}
       WEB_SESSION_SECRET: ${WEB_SESSION_SECRET:-dev-web-session-secret-change-me}
@@ -16,8 +19,11 @@ services:
       WEBHOOK_PROCESSING_LEASE_SECONDS: ${WEBHOOK_PROCESSING_LEASE_SECONDS:-300}
       OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-5}
       OUTBOX_RETRY_BASE_SECONDS: ${OUTBOX_RETRY_BASE_SECONDS:-5}
+      OUTBOX_PROCESSING_LEASE_SECONDS: ${OUTBOX_PROCESSING_LEASE_SECONDS:-60}
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
 
   outbox-worker:
@@ -31,6 +37,7 @@ services:
       WHATSAPP_API_VERSION: ${WHATSAPP_API_VERSION:-v23.0}
       OUTBOX_MAX_ATTEMPTS: ${OUTBOX_MAX_ATTEMPTS:-5}
       OUTBOX_RETRY_BASE_SECONDS: ${OUTBOX_RETRY_BASE_SECONDS:-5}
+      OUTBOX_PROCESSING_LEASE_SECONDS: ${OUTBOX_PROCESSING_LEASE_SECONDS:-60}
       OUTBOX_POLL_SECONDS: ${OUTBOX_POLL_SECONDS:-2}
       OUTBOX_BATCH_SIZE: ${OUTBOX_BATCH_SIZE:-50}
     depends_on:
@@ -51,5 +58,17 @@ services:
     volumes:
       - chatbot_db:/var/lib/postgresql/data
 
+  redis:
+    image: redis:8.2-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - chatbot_redis:/data
+
 volumes:
   chatbot_db:
+  chatbot_redis:
