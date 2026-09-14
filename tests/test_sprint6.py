@@ -29,4 +29,7 @@ def test_readiness_endpoint_checks_database():
     with TestClient(app) as client:
         response = client.get("/ready")
     assert response.status_code == 200
-    assert response.json() == {"status": "ready", "database": "ok"}
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["database"] == "ok"
+    assert "redis" in body
