@@ -3,6 +3,7 @@ import os
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test_chatbot.db")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 os.environ.setdefault("WEB_SESSION_SECRET", "test-web-session-secret")
+os.environ.setdefault("WEB_SESSION_COOKIE_SECURE", "false")
 os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_PASSWORD", "admin123")
 
@@ -25,40 +26,45 @@ def test_web_session_token_is_scoped_to_user_and_conversation():
 
 def test_secure_web_chat_flow(monkeypatch):
     monkeypatch.setenv("WEB_SESSION_REQUIRED", "true")
+    monkeypatch.setenv("WEB_SESSION_COOKIE_SECURE", "false")
     rate_limiter.reset()
     with TestClient(app) as client:
         session = client.post("/web/session")
         assert session.status_code == 200
         user_id = session.json()["user_id"]
-        bootstrap_token = session.json()["session_token"]
+        assert session.json()["session_token"] is None
+        cookie = session.headers.get("set-cookie", "")
+        assert "web_session=" in cookie
+        assert "HttpOnly" in cookie
+        assert "SameSite=strict" in cookie
 
         chat = client.post(
             "/webhook/web",
-            headers={"X-Web-Session": bootstrap_token},
             json={"channel": "web_chat", "user_id": user_id, "text": "hello", "metadata": {}},
         )
         assert chat.status_code == 200
         conversation_id = chat.json()["session_id"]
-        scoped_token = chat.json()["session_token"]
-        assert scoped_token
+        assert chat.json()["session_token"] is None
 
+        allowed = client.get(
+            f"/web/conversations/{conversation_id}/messages",
+            params={"user_id": user_id},
+        )
+        assert allowed.status_code == 200
+        assert isinstance(allowed.json(), list)
+
+        client.cookies.clear()
         denied = client.get(
             f"/web/conversations/{conversation_id}/messages",
             params={"user_id": user_id},
         )
         assert denied.status_code == 401
 
-        allowed = client.get(
-            f"/web/conversations/{conversation_id}/messages",
-            params={"user_id": user_id, "session_token": scoped_token},
-        )
-        assert allowed.status_code == 200
-        assert isinstance(allowed.json(), list)
-
 
 def test_public_rate_limit(monkeypatch):
     monkeypatch.setenv("PUBLIC_RATE_LIMIT", "1")
     monkeypatch.setenv("PUBLIC_RATE_WINDOW_SECONDS", "60")
+    monkeypatch.setenv("WEB_SESSION_COOKIE_SECURE", "false")
     rate_limiter.reset()
     with TestClient(app) as client:
         assert client.post("/web/session").status_code == 200
