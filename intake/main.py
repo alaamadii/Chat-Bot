@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -34,6 +34,7 @@ from services.idempotency import webhook_idempotency
 configure_logging()
 logger = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parent.parent
+WEB_SESSION_COOKIE = "web_session"
 
 
 class ChatResponse(BaseModel):
@@ -47,7 +48,7 @@ class ChatResponse(BaseModel):
 
 class WebSessionResponse(BaseModel):
     user_id: str
-    session_token: str
+    session_token: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
@@ -80,7 +81,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="NextTech AI Support Bot", version="6.1.0", lifespan=lifespan)
+app = FastAPI(title="NextTech AI Support Bot", version="6.2.0", lifespan=lifespan)
 app.include_router(admin_router)
 app.include_router(ops_router)
 app.include_router(quality_router)
@@ -98,6 +99,11 @@ async def request_context(request: Request, call_next):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["X-Frame-Options"] = "DENY"
+    if request.url.path == "/" or request.url.path.startswith("/web/"):
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; "
+            "img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+        )
     return response
 
 
@@ -137,17 +143,57 @@ def _web_session_required() -> bool:
     return os.getenv("WEB_SESSION_REQUIRED", "false").lower() in {"1", "true", "yes"} or os.getenv("ENVIRONMENT", "development").lower() == "production"
 
 
-def _verify_web_request(token: Optional[str], user_id: str, conversation_id: Optional[str] = None) -> None:
+def _cookie_secure() -> bool:
+    configured = os.getenv("WEB_SESSION_COOKIE_SECURE")
+    if configured is not None:
+        return configured.lower() in {"1", "true", "yes"}
+    return os.getenv("ENVIRONMENT", "development").lower() == "production"
+
+
+def _set_web_session_cookie(response: Response, token: str) -> None:
+    minutes = int(os.getenv("WEB_SESSION_MINUTES", "1440"))
+    response.set_cookie(
+        key=WEB_SESSION_COOKIE,
+        value=token,
+        max_age=minutes * 60,
+        httponly=True,
+        secure=_cookie_secure(),
+        samesite="strict",
+        path="/",
+    )
+
+
+def _web_token(request: Request, header_token: Optional[str] = None) -> Optional[str]:
+    return request.cookies.get(WEB_SESSION_COOKIE) or header_token
+
+
+def _verify_web_request(
+    request: Request,
+    user_id: str,
+    conversation_id: Optional[str] = None,
+    header_token: Optional[str] = None,
+) -> Optional[dict]:
+    token = _web_token(request, header_token)
     if token:
-        verify_web_session(token, user_id=user_id, conversation_id=conversation_id)
-        return
+        return verify_web_session(token, user_id=user_id, conversation_id=conversation_id)
     if _web_session_required():
         raise HTTPException(status_code=401, detail="Signed web session required")
+    return None
 
 
 @app.get("/", include_in_schema=False)
 async def web_chat_page():
     return FileResponse(ROOT / "web" / "index.html")
+
+
+@app.get("/web/app.js", include_in_schema=False)
+async def web_chat_script():
+    return FileResponse(ROOT / "web" / "app.js", media_type="application/javascript")
+
+
+@app.get("/web/app.css", include_in_schema=False)
+async def web_chat_styles():
+    return FileResponse(ROOT / "web" / "app.css", media_type="text/css")
 
 
 @app.get("/dashboard", include_in_schema=False)
@@ -156,10 +202,12 @@ async def dashboard_page():
 
 
 @app.post("/web/session", response_model=WebSessionResponse)
-async def start_web_session(request: Request):
+async def start_web_session(request: Request, response: Response):
     enforce_public_rate_limit(request, "web-session")
     user_id = "web-" + str(uuid.uuid4())
-    return WebSessionResponse(user_id=user_id, session_token=create_web_session(user_id, ""))
+    token = create_web_session(user_id, "")
+    _set_web_session_cookie(response, token)
+    return WebSessionResponse(user_id=user_id)
 
 
 @app.post("/auth/login")
@@ -298,11 +346,12 @@ async def delete_knowledge(entry_id: str, user: dict = Depends(require_roles("ad
 
 @app.get("/web/conversations/{conversation_id}/messages")
 async def web_conversation_messages(
+    request: Request,
     conversation_id: str,
     user_id: str = Query(min_length=1),
-    session_token: Optional[str] = Query(default=None),
+    x_web_session: Optional[str] = Header(default=None),
 ):
-    _verify_web_request(session_token, user_id, conversation_id)
+    _verify_web_request(request, user_id, conversation_id, x_web_session)
     conversation = conversation_repository.get_conversation(conversation_id)
     if not conversation or conversation.channel != "web_chat" or conversation.user_id != user_id:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -314,10 +363,9 @@ async def web_conversation_events(
     request: Request,
     conversation_id: str,
     user_id: str = Query(min_length=1),
-    session_token: str = Query(min_length=1),
 ):
     enforce_public_rate_limit(request, "web-events")
-    verify_web_session(session_token, user_id=user_id, conversation_id=conversation_id)
+    _verify_web_request(request, user_id, conversation_id)
     conversation = conversation_repository.get_conversation(conversation_id)
     if not conversation or conversation.channel != "web_chat" or conversation.user_id != user_id:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -378,28 +426,31 @@ async def whatsapp_webhook(request: Request, x_hub_signature_256: Optional[str] 
 
 
 @app.post("/webhook/web", response_model=ChatResponse)
-async def web_webhook(msg: IncomingMessage, request: Request, x_web_session: Optional[str] = Header(default=None)):
+async def web_webhook(
+    msg: IncomingMessage,
+    request: Request,
+    response: Response,
+    x_web_session: Optional[str] = Header(default=None),
+):
     enforce_public_rate_limit(request, "web-chat")
     msg.channel = "web_chat"
-    if x_web_session:
-        payload = verify_web_session(x_web_session, user_id=msg.user_id)
+    payload = _verify_web_request(request, msg.user_id, header_token=x_web_session)
+    if payload:
         scoped_conversation = payload.get("conversation_id")
         if scoped_conversation:
             conversation = conversation_repository.get_conversation(scoped_conversation)
             if not conversation or conversation.user_id != msg.user_id or conversation.channel != "web_chat":
                 raise HTTPException(status_code=403, detail="Web session does not own this conversation")
-    elif _web_session_required():
-        raise HTTPException(status_code=401, detail="Signed web session required")
 
     result = chat_service.process(msg, deliver=False)
     token = create_web_session(msg.user_id, result.message.session_id)
+    _set_web_session_cookie(response, token)
     return ChatResponse(
         session_id=result.message.session_id,
         reply=result.reply,
         action_taken=result.action_taken,
         delivery_success=result.delivery_success,
         conversation_status=result.conversation_status,
-        session_token=token,
     )
 
 
@@ -413,4 +464,4 @@ async def get_session_history(session_id: str, user: dict = Depends(require_role
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "version": "6.1.0"}
+    return {"status": "ok", "version": "6.2.0"}

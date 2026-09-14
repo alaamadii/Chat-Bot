@@ -58,7 +58,7 @@ def test_customer_cannot_poll_another_users_conversation():
             f"/web/conversations/{conversation_id}/messages",
             params={"user_id": "not-the-owner"},
         )
-        assert response.status_code == 404
+        assert response.status_code == 403
 
 
 def test_human_active_conversation_bypasses_ai():

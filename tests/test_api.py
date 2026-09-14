@@ -4,6 +4,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./test_chatbot.db")
 os.environ.setdefault("WHATSAPP_VERIFY_TOKEN", "test-verify-token")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 os.environ.setdefault("WEB_SESSION_SECRET", "test-web-session-secret")
+os.environ.setdefault("WEB_SESSION_COOKIE_SECURE", "false")
 os.environ.setdefault("ADMIN_USERNAME", "admin")
 os.environ.setdefault("ADMIN_PASSWORD", "admin123")
 os.environ.setdefault("AGENT_USERNAME", "agent")
@@ -19,12 +20,16 @@ def test_health_check():
         response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["version"] == "6.1.0"
+    assert response.json()["version"] == "6.2.0"
 
 
 def test_browser_pages_are_available():
     with TestClient(app) as client:
-        assert client.get("/").status_code == 200
+        root = client.get("/")
+        assert root.status_code == 200
+        assert "default-src 'self'" in root.headers["content-security-policy"]
+        assert client.get("/web/app.js").status_code == 200
+        assert client.get("/web/app.css").status_code == 200
         assert client.get("/dashboard").status_code == 200
 
 
@@ -52,7 +57,9 @@ def test_web_chat_runs_full_pipeline():
     body = response.json()
     assert body["session_id"]
     assert body["reply"]
-    assert body["session_token"]
+    assert body["session_token"] is None
+    assert "web_session=" in response.headers.get("set-cookie", "")
+    assert "HttpOnly" in response.headers.get("set-cookie", "")
     assert body["action_taken"] in {"reply_only", "crm_lead_created", "sent_to_agent", "routed_to_agent"}
     assert body["conversation_status"] in {"BOT_ACTIVE", "WAITING_FOR_AGENT", "HUMAN_ACTIVE"}
 

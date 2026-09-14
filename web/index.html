@@ -1,1 +1,25 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NextTech AI Support</title><style>body{font-family:Arial,sans-serif;background:#0f172a;color:#e2e8f0;margin:0;display:grid;place-items:center;min-height:100vh}.app{width:min(760px,92vw);background:#111827;border:1px solid #334155;border-radius:20px;overflow:hidden}.head{padding:18px 22px;border-bottom:1px solid #334155}.msgs{height:58vh;overflow:auto;padding:20px}.m{padding:12px 14px;border-radius:14px;margin:9px 0;max-width:78%;line-height:1.45}.u{background:#2563eb;margin-left:auto}.b{background:#1e293b}.a{background:#14532d}.form{display:flex;gap:10px;padding:16px;border-top:1px solid #334155}.form input{flex:1;padding:13px;border-radius:12px;border:1px solid #475569;background:#0f172a;color:#fff}.form button{border:0;border-radius:12px;padding:0 18px;font-weight:700;cursor:pointer}.state{font-size:12px;color:#94a3b8}</style></head><body><div class="app"><div class="head"><strong>NextTech AI Support</strong><div id="state" class="state">AI assistant · secure live session</div></div><div id="msgs" class="msgs"><div class="m b">Hi! How can I help you today?</div></div><form id="form" class="form"><input id="input" placeholder="Type a message..." autocomplete="off"><button>Send</button></form></div><script>let id=localStorage.chatUser||'',token=localStorage.chatToken||'',session=localStorage.chatSession||'',seen=new Set(),events=null;const msgs=document.getElementById('msgs'),state=document.getElementById('state');function add(t,c,key){if(key&&seen.has(key))return;if(key)seen.add(key);const d=document.createElement('div');d.className='m '+c;d.textContent=t;msgs.appendChild(d);msgs.scrollTop=msgs.scrollHeight}async function ensureSession(){if(id&&token)return;const r=await fetch('/web/session',{method:'POST'});if(!r.ok)throw new Error('session');const j=await r.json();id=j.user_id;token=j.session_token;localStorage.chatUser=id;localStorage.chatToken=token}function connectEvents(){if(!session||!token)return;if(events)events.close();const url='/web/conversations/'+encodeURIComponent(session)+'/events?user_id='+encodeURIComponent(id)+'&session_token='+encodeURIComponent(token);events=new EventSource(url);events.addEventListener('message',e=>{const m=JSON.parse(e.data);if(m.role==='agent')add(m.text,'a',m.id)});events.onerror=()=>{state.textContent='Live reconnecting…'}}document.getElementById('form').onsubmit=async e=>{e.preventDefault();const i=document.getElementById('input'),text=i.value.trim();if(!text)return;add(text,'u');i.value='';try{await ensureSession();const r=await fetch('/webhook/web',{method:'POST',headers:{'content-type':'application/json','x-web-session':token},body:JSON.stringify({channel:'web_chat',user_id:id,text})});const j=await r.json();if(!r.ok)throw new Error(j.detail||'request');session=j.session_id;token=j.session_token||token;localStorage.chatSession=session;localStorage.chatToken=token;state.textContent=j.conversation_status==='WAITING_FOR_AGENT'?'Waiting for a human agent…':'AI assistant · secure live session';add(j.reply||'Something went wrong.','b');connectEvents()}catch{add('Unable to reach support right now.','b')}};async function poll(){if(!session||!token)return;try{const r=await fetch('/web/conversations/'+encodeURIComponent(session)+'/messages?user_id='+encodeURIComponent(id)+'&session_token='+encodeURIComponent(token));if(!r.ok)return;const data=await r.json();for(const m of data){if(m.role==='agent')add(m.text,'a',m.id)}}catch{}}(async()=>{try{await ensureSession();connectEvents();poll()}catch{state.textContent='Unable to establish secure session'}})();setInterval(()=>{if(!events||events.readyState===EventSource.CLOSED)poll()},5000);</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>NextTech AI Support</title>
+  <link rel="stylesheet" href="/web/app.css">
+</head>
+<body>
+  <div class="app">
+    <div class="head">
+      <strong>NextTech AI Support</strong>
+      <div id="state" class="state">AI assistant · secure live session</div>
+    </div>
+    <div id="msgs" class="msgs">
+      <div class="m b">Hi! How can I help you today?</div>
+    </div>
+    <form id="form" class="form">
+      <input id="input" placeholder="Type a message..." autocomplete="off">
+      <button>Send</button>
+    </form>
+  </div>
+  <script src="/web/app.js" defer></script>
+</body>
+</html>
