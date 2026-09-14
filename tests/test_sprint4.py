@@ -22,7 +22,11 @@ def test_readiness_checks_database():
     with TestClient(app) as client:
         response = client.get("/ready")
     assert response.status_code == 200
-    assert response.json() == {"status": "ready", "database": "ok"}
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["database"] == "ok"
+    assert body["redis"] in {"disabled", "ok", "degraded"}
+    assert isinstance(body["distributed_runtime_required"], bool)
 
 
 def test_admin_can_create_persistent_user_and_audit_event():
