@@ -2,6 +2,9 @@
 
 Production-oriented customer support platform built with FastAPI, OpenAI, PostgreSQL/SQLite, Redis, WhatsApp webhooks, browser chat, human-agent handoff, analytics, durable outbound delivery, and hybrid knowledge retrieval.
 
+### 📹 Output Demo
+[👉 **Click here to watch the Video Demo of the Chatbot**](https://drive.google.com/file/d/1KfCMBhyGucs8oKSCfGJ2OcyrH42dYaYL/view?usp=sharing)
+
 ## What the project includes
 
 - Web chat UI at `/`

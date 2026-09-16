@@ -32,6 +32,33 @@ Configure `CRM_WEBHOOK_URL`, `CRM_WEBHOOK_TOKEN`, and `ORDER_STATUS_WEBHOOK_URL`
 
 A release is eligible for deployment only when GitHub Actions passes dependency installation, lint checks, the high-severity security scan, `alembic upgrade head`, the pytest coverage gate, and the production Docker image build. After deployment verify `/health`, `/ready`, OpenAI response generation, knowledge retrieval, login, cookie-authenticated web chat, SSE agent delivery, human handoff, feedback, the outbox worker, and configured external channels.
 
+### Live OpenAI integration smoke test
+
+Inject `OPENAI_API_KEY` from the deployment secret manager into the server process;
+do not put it in source files, image build arguments, release notes, or command-line
+arguments. A GitHub Actions secret alone does not configure the running application.
+
+With dependencies installed and the key already in the process environment, run:
+
+```sh
+python scripts/smoke_openai.py
+```
+
+For a local run, `python scripts/smoke_openai.py --prompt-key` accepts a hidden key
+without saving it. The script disables `.env` loading, runs Alembic migrations in a
+temporary SQLite database, ingests a synthetic document with real OpenAI embeddings,
+verifies semantic retrieval, and sends a cookie-authenticated browser message through
+the application. It requires the answer to contain a randomly generated fact from the
+document and checks persisted OpenAI input/output tokens against `/admin/quality`.
+It makes paid API requests and exits nonzero on failure, including fallback replies.
+`OPENAI_MODEL` and `OPENAI_EMBEDDING_MODEL` use the application's configured defaults
+unless overridden in the environment. The temporary database and logs are removed.
+
+This is a local application test against live OpenAI, not proof of deployment health.
+Before marking the migration complete or publishing the next release, also verify the
+deployed service's health/readiness, configured secret, knowledge index model (reindex
+older embeddings if necessary), grounded browser response, and token metrics.
+
 ## Remaining infrastructure choices
 
 Production hosting, managed PostgreSQL/Redis providers, domain/TLS, secret manager, backups, alert destination, and real third-party CRM/order endpoints are environment-specific and must be supplied by the deployer. They are intentionally not hard-coded in this repository.
