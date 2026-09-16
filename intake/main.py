@@ -1,7 +1,5 @@
-import asyncio
 import hashlib
 import hmac
-import json
 import logging
 import os
 import uuid
@@ -10,7 +8,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from api.admin import router as admin_router
@@ -81,7 +79,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="NextTech AI Support Bot", version="6.2.0", lifespan=lifespan)
+app = FastAPI(title="NextTech AI Support Bot", version="6.3.0", lifespan=lifespan)
 app.include_router(admin_router)
 app.include_router(ops_router)
 app.include_router(quality_router)
@@ -358,35 +356,6 @@ async def web_conversation_messages(
     return conversation_repository.list_messages(conversation_id)
 
 
-@app.get("/web/conversations/{conversation_id}/events")
-async def web_conversation_events(
-    request: Request,
-    conversation_id: str,
-    user_id: str = Query(min_length=1),
-):
-    enforce_public_rate_limit(request, "web-events")
-    _verify_web_request(request, user_id, conversation_id)
-    conversation = conversation_repository.get_conversation(conversation_id)
-    if not conversation or conversation.channel != "web_chat" or conversation.user_id != user_id:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    async def stream():
-        seen: set[str] = set()
-        for _ in range(55):
-            if await request.is_disconnected():
-                break
-            messages = conversation_repository.list_messages(conversation_id)
-            for message in messages:
-                if message["id"] in seen:
-                    continue
-                seen.add(message["id"])
-                yield f"event: message\ndata: {json.dumps(message)}\n\n"
-            yield ": keepalive\n\n"
-            await asyncio.sleep(1)
-
-    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-
-
 @app.get("/webhook/whatsapp", response_class=PlainTextResponse)
 async def verify_whatsapp_webhook(mode: str = Query(alias="hub.mode"), verify_token: str = Query(alias="hub.verify_token"), challenge: str = Query(alias="hub.challenge")):
     expected_token = os.getenv("WHATSAPP_VERIFY_TOKEN")
@@ -464,4 +433,4 @@ async def get_session_history(session_id: str, user: dict = Depends(require_role
 
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "version": "6.2.0"}
+    return {"status": "ok", "version": "6.3.0"}
