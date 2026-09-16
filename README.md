@@ -1,15 +1,15 @@
 # NextTech AI Support Bot
 
-Production-oriented customer support platform built with FastAPI, Gemini, PostgreSQL/SQLite, Redis, WhatsApp webhooks, browser chat, human-agent handoff, analytics, durable outbound delivery, and hybrid knowledge retrieval.
+Production-oriented customer support platform built with FastAPI, OpenAI, PostgreSQL/SQLite, Redis, WhatsApp webhooks, browser chat, human-agent handoff, analytics, durable outbound delivery, and hybrid knowledge retrieval.
 
 ## What the project includes
 
 - Web chat UI at `/`
 - Agent dashboard at `/dashboard`
 - FastAPI API and OpenAPI docs at `/docs`
-- Gemini-powered response generation with provider abstraction and token-usage metrics
+- OpenAI-powered response generation through a provider abstraction with token-usage metrics
 - Structured intent classification and deterministic action routing
-- Hybrid BM25 + semantic embedding retrieval across managed knowledge documents/chunks
+- Hybrid BM25 + OpenAI semantic embedding retrieval across managed knowledge documents/chunks
 - Persistent conversations, messages, assignments, users, audit events, webhook state, and AI metrics
 - Human handoff workflow with assignment, ownership, replies, resolve/reopen states
 - WhatsApp webhook verification, HMAC signature validation, inbound idempotency, and outbound delivery
@@ -54,7 +54,7 @@ User / WhatsApp / Web Chat
       BM25 + embeddings
           |
           v
-        Gemini
+        OpenAI
           |
           v
   Confidence / Escalation
@@ -104,12 +104,14 @@ pip install -r requirements.txt
 
 ### 3. Configure environment variables
 
-Copy `.env.example` to `.env` and configure the values you need.
+Copy `.env.example` to `.env` and configure the values you need. Never commit the real API key.
 
 Minimum useful local configuration:
 
 ```env
-GEMINI_API_KEY=your_key
+OPENAI_API_KEY=your_key
+LLM_PROVIDER=openai
+EMBEDDING_PROVIDER=auto
 DATABASE_URL=sqlite:///./chatbot.db
 JWT_SECRET_KEY=replace-with-a-long-random-secret
 WEB_SESSION_SECRET=replace-with-a-separate-long-random-secret
@@ -118,6 +120,8 @@ ADMIN_PASSWORD=replace-me
 AGENT_USERNAME=agent
 AGENT_PASSWORD=replace-me
 ```
+
+`OPENAI_MODEL` defaults to `gpt-5.6-luna` and `OPENAI_EMBEDDING_MODEL` defaults to `text-embedding-3-small`. In production, inject `OPENAI_API_KEY` from your hosting platform's secret manager/environment rather than storing it in source control.
 
 For multi-replica production deployments, configure `REDIS_URL` and set `REDIS_REQUIRED=true`.
 
@@ -210,7 +214,7 @@ Incoming message IDs are persisted for idempotency. Outbound messages use the du
 
 ## Knowledge and retrieval
 
-The knowledge layer supports managed documents and chunks with embedding metadata. Retrieval combines BM25 lexical relevance and cosine semantic similarity using configurable hybrid weighting. Gemini embeddings are used when configured; the project also provides a deterministic local embedding fallback for development/tests.
+The knowledge layer supports managed documents and chunks with embedding metadata. Retrieval combines BM25 lexical relevance and cosine semantic similarity using configurable hybrid weighting. OpenAI embeddings are used automatically when `OPENAI_API_KEY` is configured; the project also provides a deterministic local embedding fallback for development/tests.
 
 Admins can ingest knowledge documents and reindex existing documents without editing application code.
 
