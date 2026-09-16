@@ -8,7 +8,7 @@ from redis import RedisError
 from sqlalchemy import text
 
 from auth.web_session import verify_web_session
-from core.rate_limit import redis_rate_limiter
+from core.rate_limit import enforce_public_rate_limit, redis_rate_limiter
 from db.database import SessionLocal
 from db.repository import conversation_repository
 from services.realtime import subscribe
@@ -74,6 +74,7 @@ async def distributed_web_conversation_events(
     user_id: str = Query(min_length=1),
 ):
     """SSE backed by Redis pub/sub with database reconciliation/fallback."""
+    enforce_public_rate_limit(request, "web-events")
     _authorize_web_conversation(request, conversation_id, user_id)
 
     async def stream():
@@ -111,7 +112,6 @@ async def distributed_web_conversation_events(
                     yield "event: error\ndata: {\"detail\":\"realtime backend unavailable\"}\n\n"
                     return
 
-        # Safe fallback for local/single-replica deployments or a non-required Redis outage.
         for _ in range(55):
             if await request.is_disconnected():
                 return
