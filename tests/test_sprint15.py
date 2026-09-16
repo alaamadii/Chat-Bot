@@ -91,10 +91,10 @@ def test_rolled_back_message_is_not_published(monkeypatch):
     assert fake.calls == []
 
 
-def test_distributed_sse_route_precedes_legacy_polling_route():
+def test_single_distributed_sse_route_is_registered():
     matching = [
         route for route in app.routes
         if getattr(route, "path", None) == "/web/conversations/{conversation_id}/events"
     ]
-    assert len(matching) == 2
+    assert len(matching) == 1
     assert matching[0].endpoint.__name__ == "distributed_web_conversation_events"

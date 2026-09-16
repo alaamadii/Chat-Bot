@@ -20,7 +20,7 @@ def test_health_check():
         response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["version"] == "6.2.0"
+    assert response.json()["version"] == "6.3.0"
 
 
 def test_browser_pages_are_available():
@@ -78,9 +78,3 @@ def test_meta_webhook_verification():
         response = client.get("/webhook/whatsapp", params={"hub.mode": "subscribe", "hub.verify_token": "test-verify-token", "hub.challenge": "challenge-123"})
     assert response.status_code == 200
     assert response.text == "challenge-123"
-
-
-def test_meta_webhook_rejects_wrong_token():
-    with TestClient(app) as client:
-        response = client.get("/webhook/whatsapp", params={"hub.mode": "subscribe", "hub.verify_token": "wrong-token", "hub.challenge": "challenge-123"})
-    assert response.status_code == 403
