@@ -1,27 +1,30 @@
 # NextTech AI Support Bot
 
-Production-oriented customer support platform built with FastAPI, Gemini, PostgreSQL/SQLite, WhatsApp webhooks, a browser chat UI, human-agent handoff, analytics, customer feedback, audit logs, and managed knowledge retrieval.
+Production-oriented customer support platform built with FastAPI, Gemini, PostgreSQL/SQLite, Redis, WhatsApp webhooks, browser chat, human-agent handoff, analytics, durable outbound delivery, and hybrid knowledge retrieval.
 
 ## What the project includes
 
 - Web chat UI at `/`
 - Agent dashboard at `/dashboard`
 - FastAPI API and OpenAPI docs at `/docs`
-- Gemini-powered response generation
+- Gemini-powered response generation with provider abstraction and token-usage metrics
 - Structured intent classification and deterministic action routing
-- BM25 knowledge retrieval across static and managed knowledge
-- Persistent conversations and messages
+- Hybrid BM25 + semantic embedding retrieval across managed knowledge documents/chunks
+- Persistent conversations, messages, assignments, users, audit events, webhook state, and AI metrics
 - Human handoff workflow with assignment, ownership, replies, resolve/reopen states
-- WhatsApp webhook verification, signature validation, inbound parsing, and outbound delivery
+- WhatsApp webhook verification, HMAC signature validation, inbound idempotency, and outbound delivery
+- Durable transactional outbox with retries, leases, and dead-letter visibility
 - JWT role-based access control for agents and admins
+- Signed browser sessions in HttpOnly SameSite=Strict cookies
 - Persistent users with bcrypt password hashing
-- Knowledge management endpoints
-- AI quality metrics, latency/confidence tracking, escalation metrics, and CSAT feedback
+- Knowledge document ingestion and reindexing endpoints
+- AI quality metrics, latency/confidence tracking, escalation metrics, token usage, and CSAT feedback
+- Redis-backed distributed rate limiting and realtime SSE fan-out with database reconciliation/fallback
 - Audit trail for privileged/support operations
 - CRM and order-status webhook integration points
 - Alembic database migrations
 - Docker and Docker Compose support
-- GitHub Actions CI with migration validation and pytest
+- GitHub Actions CI with lint, security scan, migration validation, coverage gate, and production image build
 - Liveness and readiness endpoints
 
 ## Architecture
@@ -33,22 +36,22 @@ User / WhatsApp / Web Chat
        Intake
           |
           v
-   Conversation Store
-          |
+   Conversation Store -----------------> Redis realtime fan-out
+          |                                      |
           +---------------------> Human Agent Queue
           |                            |
           |                            v
           |                     Agent Dashboard
           |                            |
           |                            v
-          |                         Delivery
+          |                      Durable Outbox
+          |                            |
+          v                            v
+    Intent Classifier              Delivery
           |
           v
-    Intent Classifier
-          |
-          v
-   Knowledge Retrieval
-        (BM25)
+   Hybrid Knowledge Retrieval
+      BM25 + embeddings
           |
           v
         Gemini
@@ -63,11 +66,13 @@ User / WhatsApp / Web Chat
   Reply     Integration
      |
      v
-  Delivery
+ Durable Outbox / Delivery
      |
      v
 Analytics / AI Metrics / Feedback / Audit
 ```
+
+PostgreSQL is the durable source of truth. Redis is used for distributed rate limiting and realtime pub/sub when configured; realtime events are emitted only after the database transaction commits.
 
 ## Quick start
 
@@ -107,13 +112,14 @@ Minimum useful local configuration:
 GEMINI_API_KEY=your_key
 DATABASE_URL=sqlite:///./chatbot.db
 JWT_SECRET_KEY=replace-with-a-long-random-secret
+WEB_SESSION_SECRET=replace-with-a-separate-long-random-secret
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=replace-me
 AGENT_USERNAME=agent
 AGENT_PASSWORD=replace-me
 ```
 
-Optional integrations are documented in `.env.example`.
+For multi-replica production deployments, configure `REDIS_URL` and set `REDIS_REQUIRED=true`.
 
 ### 4. Apply database migrations
 
@@ -133,16 +139,16 @@ Then open:
 - Agent dashboard: `http://127.0.0.1:8000/dashboard`
 - API docs: `http://127.0.0.1:8000/docs`
 - Liveness: `http://127.0.0.1:8000/health`
-- Database readiness: `http://127.0.0.1:8000/ready`
+- Readiness: `http://127.0.0.1:8000/ready`
 
 ## Docker
 
-For local PostgreSQL + API:
+For local PostgreSQL + Redis + API + outbox worker:
 
 ```bash
-docker compose up -d db
+docker compose up -d db redis
 docker compose run --rm api alembic upgrade head
-docker compose up --build api
+docker compose up --build api outbox-worker
 ```
 
 The production image runs as a non-root user and includes a container healthcheck.
@@ -200,24 +206,33 @@ Webhook endpoint:
 GET/POST /webhook/whatsapp
 ```
 
-For local testing you can expose port `8000` with a tunneling service and configure the public `/webhook/whatsapp` URL in Meta's developer console.
+Incoming message IDs are persisted for idempotency. Outbound messages use the durable outbox/retry path where applicable. For local testing you can expose port `8000` with a tunneling service and configure the public webhook URL in Meta's developer console.
 
 ## Knowledge and retrieval
 
-The bot combines:
+The knowledge layer supports managed documents and chunks with embedding metadata. Retrieval combines BM25 lexical relevance and cosine semantic similarity using configurable hybrid weighting. Gemini embeddings are used when configured; the project also provides a deterministic local embedding fallback for development/tests.
 
-- `knowledge_base.json`
-- managed database knowledge entries
+Admins can ingest knowledge documents and reindex existing documents without editing application code.
 
-Retrieval uses BM25 ranking before the selected snippets are passed into Gemini. Admins can add or remove managed knowledge without editing the JSON file manually.
+## Realtime and distributed runtime
+
+The browser conversation event endpoint is:
+
+```text
+GET /web/conversations/{conversation_id}/events
+```
+
+With Redis configured, committed message events are published through Redis pub/sub and delivered over SSE. The endpoint reconciles with the database so missed pub/sub messages can be recovered. Without Redis, or when Redis is optional and unavailable, it falls back to database polling for local/single-replica operation.
+
+For multi-replica production deployments, configure `REDIS_URL`, set `REDIS_REQUIRED=true`, and use a managed Redis service. The same Redis backend supports distributed public rate limiting.
 
 ## Quality and analytics
 
 The project persists:
 
-- intent
-- confidence
-- model/provider
+- intent and confidence
+- provider/model
+- input/output token usage when reported by the provider
 - response latency
 - escalation state
 - customer feedback / rating
@@ -253,24 +268,20 @@ Run locally:
 pytest -q
 ```
 
-GitHub Actions validates:
-
-1. dependency installation
-2. `alembic upgrade head` on a clean database
-3. the full pytest suite
+GitHub Actions validates dependency installation, Ruff linting, Bandit high-severity findings, Alembic migrations on a clean database, the pytest coverage gate, and the production Docker image build.
 
 ## Production deployment
 
-See [`docs/PRODUCTION.md`](docs/PRODUCTION.md) for release, database, secrets, reverse-proxy, integration, and infrastructure guidance.
+See [`docs/PRODUCTION.md`](docs/PRODUCTION.md) for release, database, Redis, secrets, reverse-proxy, worker, integration, and infrastructure guidance.
 
-Deployment-specific infrastructure still has to be supplied by the deployer: hosting, PostgreSQL, TLS/domain, secrets, backup/alert destinations, and real third-party integration credentials.
+Deployment-specific infrastructure still has to be supplied by the deployer: hosting, PostgreSQL, Redis for distributed production, TLS/domain, secrets, backups/alerts, and real third-party integration credentials.
 
 ## Release
 
-Current application release: **v6.0.0**.
+Current application release: **v6.3.0**.
 
 - [Changelog](CHANGELOG.md)
-- [v6.0.0 release notes](docs/releases/v6.0.0.md)
+- [v6.3.0 release notes](docs/releases/v6.3.0.md)
 
 ## Demo
 
