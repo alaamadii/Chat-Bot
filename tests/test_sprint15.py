@@ -6,7 +6,8 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///./test_chatbot.db")
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
 os.environ.setdefault("WEB_SESSION_SECRET", "test-web-session-secret")
 
-from db.database import init_db
+from db.database import SessionLocal, init_db
+from db.models import Message
 from db.repository import conversation_repository
 from intake.main import app
 from services import realtime
@@ -41,7 +42,7 @@ def test_publish_message_uses_conversation_channel(monkeypatch):
     assert json.loads(fake.calls[0][1])["id"] == "message-1"
 
 
-def test_message_insert_is_published_after_persistence(monkeypatch):
+def test_message_insert_is_published_after_commit(monkeypatch):
     init_db()
     fake = FakePublisher()
     monkeypatch.setattr(realtime, "_get_sync_client", lambda: fake)
@@ -63,6 +64,31 @@ def test_message_insert_is_published_after_persistence(monkeypatch):
     assert event["id"] == message_id
     assert event["role"] == "agent"
     assert event["text"] == "A live reply"
+
+
+def test_rolled_back_message_is_not_published(monkeypatch):
+    init_db()
+    fake = FakePublisher()
+    monkeypatch.setattr(realtime, "_get_sync_client", lambda: fake)
+    user_id = "rollback-user-" + str(uuid.uuid4())
+    conversation = conversation_repository.get_or_create_conversation(user_id, "web_chat")
+    fake.calls.clear()
+
+    with SessionLocal() as db:
+        db.add(Message(
+            id=str(uuid.uuid4()),
+            conversation_id=conversation.id,
+            role="agent",
+            user_id="agent",
+            channel="web_chat",
+            text="must not publish",
+            metadata_json={},
+        ))
+        db.flush()
+        assert fake.calls == []
+        db.rollback()
+
+    assert fake.calls == []
 
 
 def test_distributed_sse_route_precedes_legacy_polling_route():

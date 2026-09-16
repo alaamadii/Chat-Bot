@@ -6,11 +6,13 @@ from collections.abc import AsyncIterator
 from redis import Redis, RedisError
 from redis.asyncio import Redis as AsyncRedis
 from sqlalchemy import event
+from sqlalchemy.orm import Session
 
 from db.models import Message
 
 logger = logging.getLogger(__name__)
 CHANNEL_PREFIX = "chatbot:conversation"
+_PENDING_KEY = "realtime_pending_messages"
 
 
 def channel_name(conversation_id: str) -> str:
@@ -54,9 +56,8 @@ def publish_message(payload: dict) -> bool:
             pass
 
 
-@event.listens_for(Message, "after_insert")
-def _publish_inserted_message(mapper, connection, target: Message) -> None:
-    publish_message({
+def _message_payload(target: Message) -> dict:
+    return {
         "id": target.id,
         "conversation_id": target.conversation_id,
         "role": target.role,
@@ -65,7 +66,27 @@ def _publish_inserted_message(mapper, connection, target: Message) -> None:
         "text": target.text,
         "metadata": target.metadata_json or {},
         "created_at": target.created_at.isoformat() if target.created_at else None,
-    })
+    }
+
+
+@event.listens_for(Session, "after_flush")
+def _queue_inserted_messages(session: Session, flush_context) -> None:
+    pending = session.info.setdefault(_PENDING_KEY, [])
+    for target in session.new:
+        if isinstance(target, Message):
+            pending.append(_message_payload(target))
+
+
+@event.listens_for(Session, "after_commit")
+def _publish_committed_messages(session: Session) -> None:
+    pending = session.info.pop(_PENDING_KEY, [])
+    for payload in pending:
+        publish_message(payload)
+
+
+@event.listens_for(Session, "after_rollback")
+def _discard_rolled_back_messages(session: Session) -> None:
+    session.info.pop(_PENDING_KEY, None)
 
 
 async def subscribe(conversation_id: str) -> AsyncIterator[dict | None]:
