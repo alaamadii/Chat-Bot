@@ -4,7 +4,7 @@ import os
 import re
 from typing import Protocol
 
-from google import genai
+from openai import OpenAI
 
 
 class EmbeddingProvider(Protocol):
@@ -35,33 +35,30 @@ class LocalHashEmbeddingProvider:
         return [value / norm for value in vector]
 
 
-class GeminiEmbeddingProvider:
-    name = "gemini"
+class OpenAIEmbeddingProvider:
+    name = "openai"
 
     def __init__(self):
-        self.model = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-001")
-        self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        self.model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is required when EMBEDDING_PROVIDER=openai")
+        self.client = OpenAI(api_key=api_key)
 
     def embed(self, text: str, *, task: str = "document") -> list[float]:
-        task_type = "RETRIEVAL_QUERY" if task == "query" else "RETRIEVAL_DOCUMENT"
-        response = self.client.models.embed_content(
-            model=self.model,
-            contents=text,
-            config={"task_type": task_type},
-        )
-        embeddings = getattr(response, "embeddings", None) or []
-        if not embeddings:
+        response = self.client.embeddings.create(model=self.model, input=text)
+        if not response.data:
             raise RuntimeError("Embedding provider returned no vectors")
-        return list(embeddings[0].values)
+        return list(response.data[0].embedding)
 
 
 def get_embedding_provider() -> EmbeddingProvider:
     configured = os.getenv("EMBEDDING_PROVIDER", "auto").lower()
-    if configured == "gemini" or (configured == "auto" and os.getenv("GEMINI_API_KEY")):
+    if configured == "openai" or (configured == "auto" and os.getenv("OPENAI_API_KEY")):
         try:
-            return GeminiEmbeddingProvider()
+            return OpenAIEmbeddingProvider()
         except Exception:
-            if configured == "gemini":
+            if configured == "openai":
                 raise
     return LocalHashEmbeddingProvider()
 
