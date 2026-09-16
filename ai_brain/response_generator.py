@@ -13,7 +13,7 @@ class ResponseGenerator:
     """Generate grounded responses through a configurable provider abstraction."""
 
     def __init__(self):
-        self.temperature = float(os.getenv("GEMINI_TEMPERATURE", "0.3"))
+        self.temperature = float(os.getenv("AI_TEMPERATURE", "0.3"))
 
     def generate(self, user_message: str, intent: Intent, context: Context) -> AIResponse:
         try:

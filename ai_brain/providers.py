@@ -2,8 +2,7 @@ import os
 from dataclasses import dataclass
 from typing import Protocol
 
-from google import genai
-from google.genai import types
+from openai import OpenAI
 
 
 @dataclass
@@ -20,24 +19,32 @@ class LLMProvider(Protocol):
     def generate(self, *, prompt: str, system_instruction: str, temperature: float) -> ProviderResult: ...
 
 
-class GeminiProvider:
-    name = "gemini"
+class OpenAIProvider:
+    name = "openai"
 
     def __init__(self):
-        self.model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-        self.client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+        self.model = os.getenv("OPENAI_MODEL", "gpt-5.6-luna")
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is required when LLM_PROVIDER=openai")
+        self.client = OpenAI(api_key=api_key)
 
     def generate(self, *, prompt: str, system_instruction: str, temperature: float) -> ProviderResult:
-        response = self.client.models.generate_content(
-            model=self.model,
-            contents=prompt,
-            config=types.GenerateContentConfig(system_instruction=system_instruction, temperature=temperature),
-        )
-        usage = getattr(response, "usage_metadata", None)
+        kwargs = {
+            "model": self.model,
+            "instructions": system_instruction,
+            "input": prompt,
+        }
+        # Reasoning models may not accept arbitrary temperature values. Keep
+        # temperature configurable but only send it when explicitly enabled.
+        if os.getenv("OPENAI_USE_TEMPERATURE", "false").lower() == "true":
+            kwargs["temperature"] = temperature
+        response = self.client.responses.create(**kwargs)
+        usage = getattr(response, "usage", None)
         return ProviderResult(
-            text=response.text or "I don't have enough information to answer that.",
-            input_tokens=int(getattr(usage, "prompt_token_count", 0) or 0),
-            output_tokens=int(getattr(usage, "candidates_token_count", 0) or 0),
+            text=(getattr(response, "output_text", None) or "I don't have enough information to answer that."),
+            input_tokens=int(getattr(usage, "input_tokens", 0) or 0),
+            output_tokens=int(getattr(usage, "output_tokens", 0) or 0),
         )
 
 
@@ -50,10 +57,10 @@ class OfflineProvider:
 
 
 def get_llm_provider() -> LLMProvider:
-    configured = os.getenv("LLM_PROVIDER", "gemini").lower()
-    if configured == "gemini":
+    configured = os.getenv("LLM_PROVIDER", "openai").lower()
+    if configured == "openai":
         try:
-            return GeminiProvider()
+            return OpenAIProvider()
         except Exception:
             return OfflineProvider()
     if configured == "offline":
