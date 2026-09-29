@@ -272,8 +272,15 @@ These must point to trusted production services; they are intentionally not hard
 Run locally:
 
 ```bash
+pip install -r requirements-dev.txt
 pytest -q
+node --test tests/dashboard.test.cjs
 ```
+
+The Python suite uses an isolated temporary database and offline providers, without
+loading local `.env` secrets. The dashboard regression test requires Node.js 22+.
+See [the project review](docs/PROJECT_REVIEW.md) for verified behavior and remaining
+production work.
 
 GitHub Actions validates dependency installation, Ruff linting, Bandit high-severity findings, Alembic migrations on a clean database, the pytest coverage gate, and the production Docker image build.
 

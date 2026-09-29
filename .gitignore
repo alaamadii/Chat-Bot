@@ -11,6 +11,13 @@ venv.bak/
 chat_logs.jsonl
 *.log
 *.sqlite3
+*.db
+*.db-shm
+*.db-wal
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
 
 # Python cache
 __pycache__/

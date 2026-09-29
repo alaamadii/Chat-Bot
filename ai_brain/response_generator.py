@@ -1,13 +1,9 @@
 import os
 import time
 
-from dotenv import load_dotenv
-
+from core import config  # noqa: F401
 from ai_brain.models import AIResponse, Context, Intent
 from ai_brain.providers import get_llm_provider
-
-load_dotenv()
-
 
 class ResponseGenerator:
     """Generate grounded responses through a configurable provider abstraction."""

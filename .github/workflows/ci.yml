@@ -15,10 +15,15 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: pip install -r requirements-dev.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Dashboard regression tests
+        run: node --test tests/dashboard.test.cjs
       - name: Lint for syntax and undefined names
         run: ruff check . --select E9,F63,F7,F82
       - name: High-severity security scan
-        run: bandit -q -r api auth core db intake services knowledge actions ai_brain delivery -x tests -lll
+        run: bandit -q -r api auth core db intake services knowledge actions ai_brain delivery -x tests,.venv,venv -lll
       - name: Validate database migrations
         run: alembic upgrade head
         env:
