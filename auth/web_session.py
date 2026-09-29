@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status
 from jose import JWTError, jwt
 
+from core import config  # noqa: F401
+
 ALGORITHM = "HS256"
 WEB_SESSION_MINUTES = int(os.getenv("WEB_SESSION_MINUTES", "1440"))
 

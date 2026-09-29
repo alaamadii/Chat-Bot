@@ -3,6 +3,8 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
+from core import config  # noqa: F401
+
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./chatbot.db")
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}

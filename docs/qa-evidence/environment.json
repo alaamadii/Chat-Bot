@@ -1,0 +1,8 @@
+{
+  "captured_utc": "2026-09-29T13:20:28.731164+00:00",
+  "tested_commit": "f38ca9d255066c81d613f732adee569152dee4b4",
+  "baseline_commit": "c595d48fbd286864f1d429b256256d0ec67ce802",
+  "python": "3.13.12",
+  "platform": "Windows",
+  "node": "v24.19.0"
+}
