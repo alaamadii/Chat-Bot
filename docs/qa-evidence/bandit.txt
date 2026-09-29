@@ -1,0 +1,3 @@
+Command: python -m bandit -q -r api auth core db intake services knowledge actions ai_brain delivery -x tests,.venv,venv -lll
+Exit code: 0
+

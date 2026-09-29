@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Chat-Bot — QA &amp; Debugging Case Study</title>
+<style>
+@page{size:A4;margin:13mm 15mm}*{box-sizing:border-box}body{margin:0;color:#24344a;font:10pt/1.38 Arial,sans-serif;background:#e9eef4}a{color:#126978;text-decoration:none}h1,h2,h3,p{margin:0 0 10px}h1{font-size:35pt;line-height:1.1;letter-spacing:-1.2px;color:#102941}h2{font-size:23pt;line-height:1.2;color:#102941}h3{font-size:13pt;color:#102941;margin-top:15px}.page{width:180mm;height:270mm;margin:15px auto;background:white;position:relative;padding:4mm 0 15mm;break-after:page}.page:last-child{break-after:auto}.eyebrow{font-size:9pt;font-weight:700;letter-spacing:2px;color:#137984;margin-bottom:19px}.rule{height:4px;width:46px;background:#19a8a0;margin:20px 0}.subtitle{font-size:16pt;color:#607287}.muted{color:#607287}.small{font-size:9pt}.metrics{display:flex;gap:12px;margin:23px 0}.metric{flex:1;padding:14px;background:#eff6f7;border-top:3px solid #178e8e}.metric strong{display:block;font-size:25pt;color:#102941}.metric span{font-size:9pt}.note{padding:14px 17px;border-left:3px solid #168a91;background:#f0f6f7;margin:14px 0}.warn{border-left-color:#bc8432;background:#fbf6eb}.meta{width:100%;border-collapse:collapse;margin:15px 0}.meta td,.meta th{padding:7px 9px;border-bottom:1px solid #dbe3ea;text-align:left;vertical-align:top}.meta th{background:#f0f4f7;color:#42566c;font-size:9pt}.meta td{font-size:9pt}.tag{display:inline-block;font-size:8pt;font-weight:bold;padding:4px 8px;background:#e8f5ef;color:#21734e;margin:0 6px 9px 0}.priority{background:#fff1dc;color:#8f5919}.footer{position:absolute;bottom:0;left:0;right:0;border-top:1px solid #dbe3ea;padding-top:9px;display:flex;justify-content:space-between;font-size:8pt;color:#66778a}ol,ul{padding-left:21px;margin:8px 0 14px}li{margin:4px 0}pre{font:9pt/1.6 Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;padding:13px;background:#122b42;color:#dff4f5;border-radius:4px}code{font:9pt Consolas,monospace;overflow-wrap:anywhere}.fields p{margin-bottom:9px}.divider{height:1px;background:#dbe3ea;margin:21px 0}.caption{font-size:8.5pt;color:#607287}.two{display:grid;grid-template-columns:1fr 1fr;gap:22px}@media print{body{background:white}.page{margin:0;width:auto;box-shadow:none}a{color:#126978}}@media screen{.page{padding-left:8mm;padding-right:8mm;width:196mm}.footer{left:8mm;right:8mm}}
+</style></head><body>
+<section class="page">
+<div class="eyebrow">QA PORTFOLIO / RELEASE READINESS</div>
+<h1>QA &amp; Debugging<br>Case Study</h1><div class="rule"></div>
+<p class="subtitle">NextTech AI Support Bot</p>
+<p>Functional regression, defect reproduction and fix verification for a customer-support web application.</p>
+<table class="meta"><tr><td><b>Portfolio owner</b><br>Alaa Madi</td><td><b>Report date</b><br>29 September 2026</td></tr><tr><td><b>Application</b><br>FastAPI web chat &amp; agent dashboard</td><td><b>Evidence scope</b><br>Local, offline, development environment</td></tr></table>
+<div class="metrics"><div class="metric"><strong>62</strong><span>Python tests passed</span></div><div class="metric"><strong>1</strong><span>Dashboard regression test passed</span></div><div class="metric"><strong>81.66%</strong><span>Coverage of selected modules</span></div></div>
+<h3>Executive assessment</h3>
+<p>The local support workflow passed the recorded checks. Four reproducible defects are documented here with before/after evidence: configuration loaded too late, unsafe dashboard HTML rendering, an incorrect dashboard status reference, and unnecessary escalation of greetings.</p>
+<p>The fixes are traceable to a reviewable pull request. Remaining production risks are documented separately from verified fixes. This sample demonstrates structured QA reporting and technical debugging; it is not a mobile-device or production-load certification.</p>
+<div class="note"><b>Evidence-backed result</b><br>Fresh evidence capture: 29 September 2026, 13:20 UTC.<br>Baseline: <code>c595d48</code> &nbsp; → &nbsp; Tested fix: <code>f38ca9d</code><br>Fix review: <a href="https://github.com/alaamadii/Chat-Bot/pull/32">github.com/alaamadii/Chat-Bot/pull/32</a></div>
+<p class="small muted">Prepared from project source, executable regression checks and captured command output. Technical investigation, automation and report preparation used AI-assisted development tooling. Results describe this project and do not imply testing of a prospective client's application.</p>
+<div class="footer"><span>NextTech AI Support Bot · QA case study</span><span>01 / 05</span></div>
+</section>
+<section class="page">
+<div class="eyebrow">01 / TEST STRATEGY &amp; ENVIRONMENT</div><h2>Scope and verification</h2>
+<p>The review follows the main support journey: create a signed chat session, send a message, escalate when appropriate, claim the conversation, reply as an agent and return the conversation to the bot.</p>
+<table class="meta"><tr><th>Environment</th><th>Recorded configuration</th></tr><tr><td>Host / runtime</td><td>Windows · Python 3.13.12 · Node.js v24.19.0</td></tr><tr><td>Backend / persistence</td><td>FastAPI · SQLAlchemy · temporary SQLite database</td></tr><tr><td>AI / integrations</td><td>Offline LLM provider and local embeddings; live external calls excluded from the regression run</td></tr><tr><td>Dashboard execution</td><td>Node VM with simulated DOM and controlled API responses; not a browser/device matrix</td></tr><tr><td>Packaging</td><td>Python 3.12 Docker image successfully built during the preceding project review</td></tr></table>
+<h3>Verification matrix</h3>
+<table class="meta"><tr><th>Check</th><th>Outcome</th><th>Evidence</th></tr><tr><td>Python regression suite</td><td>62 passed; 184 warnings</td><td><code>pytest.txt</code></td></tr><tr><td>Dashboard safety &amp; state</td><td>1 test passed</td><td><code>dashboard.txt</code></td></tr><tr><td>Before/after defects</td><td>Original failures confirmed; corrected behavior confirmed</td><td><code>before.txt</code>, <code>after.txt</code>, <code>dashboard-comparison.txt</code></td></tr><tr><td>Syntax / undefined names</td><td>Ruff passed</td><td><code>ruff.txt</code></td></tr><tr><td>High-severity source scan</td><td>Bandit passed</td><td><code>bandit.txt</code></td></tr><tr><td>Clean-database migrations</td><td>7 migrations applied</td><td><code>migrations.txt</code></td></tr></table>
+<p class="small">Evidence files are in <code>docs/qa-evidence/</code>. Coverage is 81.66% across the modules selected by CI, not the entire repository. The dashboard assertion covers both escaped rendering and the status update.</p>
+<h3>Previously verified local HTTP journey</h3>
+<p>Health, readiness, chat page, dashboard and API docs returned HTTP 200. Login, signed chat, greeting, handoff, claim, agent reply, transcript retrieval and return-to-bot checks passed during the preceding review. These results are recorded in <code>docs/PROJECT_REVIEW.md</code>; they are not a new device test.</p>
+<div class="note warn"><b>Interpretation:</b> Passing offline checks supports local functional confidence. It does not establish live AI quality, external delivery reliability, security certification or capacity under load.</div>
+<div class="footer"><span>Scope · method · reproducible evidence</span><span>02 / 05</span></div>
+</section>
+<section class="page">
+<div class="eyebrow">02 / DEFECT RECORDS</div><h2>Configuration and rendering</h2>
+<h3>BUG-01 · Environment settings loaded after initialization</h3>
+<span class="tag priority">HIGH · P1</span><span class="tag">FIXED / RETESTED</span>
+<div class="fields"><p><b>Precondition:</b> Fresh Python process; database and JWT settings supplied through a synthetic dotenv file rather than inherited environment variables.</p>
+<p><b>Reproduce:</b> 1. Set a distinct SQLite URL, signing key and token lifetime in the fixture. 2. Import <code>intake.main</code>. 3. Compare initialized database/auth values with the fixture.</p>
+<p><b>Expected:</b> Application initialization uses the configured values.</p>
+<p><b>Actual before fix:</b> All three comparisons returned false. The default database and authentication settings were captured before dotenv loading.</p>
+<p><b>Impact / cause:</b> Local configuration can silently target the wrong database or use an unintended signing key. Dotenv was loaded from the response generator after dependent modules initialized.</p>
+<p><b>Resolution:</b> Shared early configuration loader imported before environment-dependent initialization. After-fix comparisons all returned true.</p>
+<p class="small"><b>Trace:</b> <code>core/config.py</code>, <code>db/database.py</code>, <code>auth/web_session.py</code> · <code>tests/test_configuration.py</code> · Evidence: <code>before.txt</code> / <code>after.txt</code>.</p></div>
+<div class="divider"></div>
+<h3>BUG-02 · Queue data rendered as raw HTML</h3>
+<span class="tag priority">HIGH · P1</span><span class="tag">FIXED / RETESTED</span>
+<div class="fields"><p><b>Precondition:</b> Controlled conversation response containing markup in a customer display field.</p>
+<p><b>Reproduce:</b> 1. Set <code>user_id</code> to <code>&lt;img src=x onerror=alert(1)&gt;</code>. 2. Invoke <code>renderQueue</code> in the dashboard harness. 3. Inspect the generated markup.</p>
+<p><b>Expected:</b> The supplied value is displayed as text, without creating an HTML element.</p>
+<p><b>Actual before fix:</b> The queue output contained a raw <code>&lt;img&gt;</code> element.</p>
+<p><b>Impact / cause:</b> An HTML injection sink in the agent interface creates potential script-execution risk when attacker-controlled data reaches it. API values were interpolated directly into <code>innerHTML</code>.</p>
+<p><b>Resolution:</b> Escape queue fields and message roles. Retest confirms raw markup is absent. The harness does not execute the payload or claim browser exploit verification.</p>
+<p class="small"><b>Trace:</b> <code>dashboard/index.html</code> · <code>tests/dashboard.test.cjs</code> · Evidence: <code>dashboard-comparison.txt</code>.</p></div>
+<div class="footer"><span>Severity expresses impact · P1 = address before release</span><span>03 / 05</span></div>
+</section>
+<section class="page">
+<div class="eyebrow">03 / DEFECT RECORDS</div><h2>Agent state and handoff</h2>
+<h3>BUG-03 · Conversation status badge does not update</h3>
+<span class="tag priority">MEDIUM · P2</span><span class="tag">FIXED / RETESTED</span>
+<div class="fields"><p><b>Precondition:</b> An agent opens a conversation whose API status is <code>WAITING_FOR_AGENT</code>; the global <code>status</code> property is a string.</p>
+<p><b>Reproduce:</b> 1. Initialize the dashboard harness with <code>status: ''</code>. 2. Return the conversation from the API stub. 3. Call <code>openConversation</code>. 4. Inspect the status element.</p>
+<p><b>Expected:</b> The visible badge reflects the API conversation status.</p>
+<p><b>Actual before fix:</b> The element was unchanged; <code>status_element_updated</code> returned false.</p>
+<p><b>Impact / cause:</b> Agents cannot reliably see conversation state. The implicit global reference resolves to <code>window.status</code> instead of the element.</p>
+<p><b>Resolution:</b> Use <code>document.getElementById('status')</code>. Retest returns true for the element update, independently of the global property.</p>
+<p class="small"><b>Trace:</b> <code>dashboard/index.html</code> · Evidence: <code>dashboard-comparison.txt</code>; verified in a simulated DOM.</p></div>
+<div class="divider"></div>
+<h3>BUG-04 · Standalone greeting triggers human handoff</h3>
+<span class="tag priority">MEDIUM · P2</span><span class="tag">FIXED / RETESTED</span>
+<div class="fields"><p><b>Precondition:</b> An active bot conversation receives a standalone greeting such as <code>hi</code>.</p>
+<p><b>Reproduce:</b> 1. Classify <code>hi</code>. 2. Apply confidence scoring to the resulting intent. 3. Inspect <code>escalate_to_human</code>.</p>
+<p><b>Expected:</b> A recognized greeting remains with the bot; an actual support request still escalates.</p>
+<p><b>Actual before fix:</b> Intent was <code>general</code> with confidence 0.5, below the 0.6 handoff threshold. Escalation was true.</p>
+<p><b>Impact / cause:</b> Routine greetings unnecessarily enter the support queue. The classifier lacked a standalone greeting category.</p>
+<p><b>Resolution:</b> Match normalized standalone greetings after business intents. The retest reports <code>greeting</code> and escalation false. Regression cases cover Arabic/English greetings, mixed greeting/support messages and return-to-bot behavior.</p>
+<p class="small"><b>Trace:</b> <code>ai_brain/intent_classifier.py</code> · <code>tests/test_greeting_handoff.py</code> · Evidence: <code>before.txt</code> / <code>after.txt</code>.</p></div>
+<div class="note small">The greeting and status fixes were already present locally at the start of the original review; they were preserved, verified and included in PR #32.</div>
+<div class="footer"><span>P2 = resolve in the planned release cycle</span><span>04 / 05</span></div>
+</section>
+<section class="page">
+<div class="eyebrow">04 / EVIDENCE &amp; RELEASE DECISION</div><h2>Traceability and next steps</h2>
+<h3>Observed before → after</h3>
+<table class="meta"><tr><th>Controlled check</th><th>Baseline</th><th>Fixed</th></tr><tr><td>Configured database used</td><td>false</td><td>true</td></tr><tr><td>Configured signing key used</td><td>false</td><td>true</td></tr><tr><td>Configured token lifetime used</td><td>false</td><td>true</td></tr><tr><td>Raw HTML in queue output</td><td>true</td><td>false</td></tr><tr><td>Status element updated</td><td>false</td><td>true</td></tr><tr><td>Standalone greeting escalates</td><td>true</td><td>false</td></tr></table>
+<p class="small">Synthetic data only. These are extracted test observations, not fabricated UI screenshots. Evidence is captured by the versioned scripts below.</p>
+<pre>python scripts/capture_qa_evidence.py
+node scripts/compare_dashboard.cjs</pre>
+<p class="small">Run from the repository with development dependencies installed and Node.js available. The capture script re-executes the offline suite, compares baseline and current code, and writes evidence under <code>docs/qa-evidence/</code>.</p>
+<h3>Remaining release risks — source-review findings</h3>
+<ul><li><b>Outbound reliability:</b> some WhatsApp paths bypass the durable outbox; verify crash recovery and retries.</li><li><b>Access and runtime policy:</b> validate account disablement/token revocation and required-Redis configuration.</li><li><b>Conversation quality:</b> pass bounded history to generation, define Arabic behavior, and report real CRM outcomes.</li></ul>
+<h3>Proposed next testing phase — not yet executed</h3>
+<p>Agree on target devices, browser versions and latency/error budgets. Test mobile layouts, interrupted sessions, repeated submissions and SSE reconnects. Then run controlled baseline, ramp-up, spike and soak scenarios on staging with realistic services; record concurrency, request rate, p50/p95/p99 latency, error rate and resource use. Retest failed journeys after fixes.</p>
+<div class="note warn"><b>Release recommendation:</b> Suitable for local demonstration and further QA. Production sign-off remains pending live integrations, PostgreSQL/Redis checks, real-browser/device coverage and measured load testing. No capacity or mobile compatibility claims are made.</div>
+<p class="small"><b>Verification references:</b> <a href="https://github.com/alaamadii/Chat-Bot/pull/32">Fix PR #32</a> · <a href="https://github.com/alaamadii/Chat-Bot/commit/f38ca9d255066c81d613f732adee569152dee4b4">Tested code commit</a> · <code>docs/PROJECT_REVIEW.md</code> · raw evidence and capture scripts accompany this report.</p>
+<div class="footer"><span>Evidence package · no credentials or contact details included</span><span>05 / 05</span></div>
+</section>
+</body></html>

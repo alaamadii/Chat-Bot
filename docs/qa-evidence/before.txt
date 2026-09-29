@@ -1,0 +1,19 @@
+Command: python -c 
+import sys, json, dotenv
+original = dotenv.load_dotenv
+dotenv.load_dotenv = lambda *a, **kw: original(sys.argv[1], override=False)
+from intake.main import app
+from db.database import DATABASE_URL
+from auth.security import SECRET_KEY, ACCESS_TOKEN_MINUTES
+from ai_brain.intent_classifier import classifier
+from ai_brain.confidence_scorer import scorer
+from ai_brain.models import AIResponse
+result = scorer.score(AIResponse(text='Hello!'), classifier.classify('hi'))
+print(json.dumps({'configured_database_used': DATABASE_URL == 'sqlite:///:memory:',
+ 'configured_jwt_key_used': SECRET_KEY == 'qa-synthetic-secret',
+ 'configured_token_lifetime_used': ACCESS_TOKEN_MINUTES == 17,
+ 'greeting_intent': result.intent.category, 'greeting_escalates': result.escalate_to_human}))
+ <TEMP>\qa-baseline-v5zu4fqc\qa.env
+Exit code: 0
+
+{"configured_database_used": false, "configured_jwt_key_used": false, "configured_token_lifetime_used": false, "greeting_intent": "general", "greeting_escalates": true}

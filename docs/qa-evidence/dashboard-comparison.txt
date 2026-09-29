@@ -1,0 +1,13 @@
+Command: node scripts/compare_dashboard.cjs
+Exit code: 0
+
+{
+  "before": {
+    "queue_contains_raw_html": true,
+    "status_element_updated": false
+  },
+  "after": {
+    "queue_contains_raw_html": false,
+    "status_element_updated": true
+  }
+}

@@ -1,0 +1,12 @@
+Command: python -m alembic upgrade head
+Exit code: 0
+
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 0001_baseline, baseline schema
+INFO  [alembic.runtime.migration] Running upgrade 0001_baseline -> 0002_ai_quality, AI quality and customer feedback tables.
+INFO  [alembic.runtime.migration] Running upgrade 0002_ai_quality -> 0003_knowledge_documents, Knowledge documents and chunks.
+INFO  [alembic.runtime.migration] Running upgrade 0003_knowledge_documents -> 0004_webhook_reliability, Webhook reliability state.
+INFO  [alembic.runtime.migration] Running upgrade 0004_webhook_reliability -> 0005_semantic_embeddings, Semantic embedding metadata for knowledge chunks.
+INFO  [alembic.runtime.migration] Running upgrade 0005_semantic_embeddings -> 0006_ai_token_metrics, AI token usage metrics.
+INFO  [alembic.runtime.migration] Running upgrade 0006_ai_token_metrics -> 0007_outbound_outbox, Outbound delivery outbox.
